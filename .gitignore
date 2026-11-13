@@ -2,3 +2,9 @@
 prototype/dashboard_prototype.html
 prototype/data.js
 *.csv
+# Сайт: локальный конфиг с ключами и рабочие данные
+site/config.php
+site/data/*
+!site/data/.htaccess
+!site/data/index.php
+deploy/
