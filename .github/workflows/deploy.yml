@@ -1,5 +1,6 @@
 # Выкладка сайта отчётов на хостинг.
 # Срабатывает при изменении ветки main (после слияния изменений) и вручную: Actions -> «Выкладка сайта» -> Run workflow.
+# В pull request в main запускаются только тесты.
 # Нужные секреты репозитория (Settings -> Secrets and variables -> Actions):
 #   FTP_SERVER    - адрес FTP-сервера хостинга, например ftp.example.ru
 #   FTP_USERNAME  - логин FTP
@@ -15,10 +16,14 @@ on:
   push:
     branches: [main]
     paths: ['site/**', 'tests/**', '.github/workflows/deploy.yml']
+  # Для pull request в main - только тесты (выкладка идёт лишь из main), чтобы ошибки были видны до слияния
+  pull_request:
+    branches: [main]
+    paths: ['site/**', 'tests/**', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
 concurrency:
-  group: deploy-site
+  group: deploy-site-${{ github.ref }}   # выкладки из main идут строго по очереди; тесты PR их не вытесняют
   cancel-in-progress: false
 
 permissions:
