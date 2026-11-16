@@ -99,7 +99,7 @@
 Слеш на конце `FTP_DIR` обязателен.
 
 ### 2. Ветка `main`
-1. Откройте https://github.com/pisimonov/test/branches → **New branch**. Название `main`, источник - `claude/loving-ptolemy-wpw9a2` → **Create**.
+1. Откройте https://github.com/pisimonov/NSHMAIN/branches → **New branch**. Название `main`, источник - `claude/loving-ptolemy-wpw9a2` → **Create**.
 2. Откройте **Settings → General → Default branch**, выберите `main` и подтвердите.
 
 ### 3. Секреты
@@ -134,9 +134,9 @@
 Ниже - **упрощённые схемы** экранов GitHub (не настоящие скриншоты): надписи и расположение кнопок те же, оформление проще.
 
 **Самый короткий путь** - откройте прямую ссылку, она ведёт сразу на экран 2:
-https://github.com/pisimonov/test/actions/workflows/deploy.yml
+https://github.com/pisimonov/NSHMAIN/actions/workflows/deploy.yml
 
-**5.1. Откройте вкладку Actions.** На странице репозитория https://github.com/pisimonov/test в верхнем ряду вкладок (Code, Issues, Pull requests, **Actions**, …, Settings) нажмите **Actions** (метка 1).
+**5.1. Откройте вкладку Actions.** На странице репозитория https://github.com/pisimonov/NSHMAIN в верхнем ряду вкладок (Code, Issues, Pull requests, **Actions**, …, Settings) нажмите **Actions** (метка 1).
 
 ![Экран 1](docs/deploy/s1.png)
 
