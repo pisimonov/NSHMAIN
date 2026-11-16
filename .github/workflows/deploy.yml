@@ -1,4 +1,7 @@
-# Выкладка сайта отчётов на хостинг.
+# Тесты и (необязательно) выкладка сайта отчётов на хостинг по FTP.
+# Основной способ обновления сайта - самообновление: сайт сам скачивает код из main после того,
+# как здесь прошли тесты (страница «Настройки» → «Обновление кода сайта»).
+# Выкладка по FTP выполняется, только если в переменных репозитория задано DEPLOY_METHOD = ftp.
 # Срабатывает при изменении ветки main (после слияния изменений) и вручную: Actions -> «Выкладка сайта» -> Run workflow.
 # В pull request в main запускаются только тесты.
 # Нужные секреты репозитория (Settings -> Secrets and variables -> Actions):
@@ -50,7 +53,7 @@ jobs:
   deploy:
     name: Выкладка по FTP
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_METHOD == 'ftp'
     runs-on: ubuntu-latest
     environment: production
     steps:

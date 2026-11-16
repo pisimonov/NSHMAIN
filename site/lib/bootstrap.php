@@ -31,6 +31,7 @@ if (!is_file(DATA_DIR . '/.htaccess')) {
 require_once __DIR__ . '/util.php';
 require_once __DIR__ . '/sources.php';
 require_once __DIR__ . '/reports.php';
+require_once __DIR__ . '/updater.php';
 
 /* ---------- журнал ---------- */
 function app_log(string $msg): void {
@@ -48,7 +49,7 @@ set_exception_handler(function ($e) {
 
 /* ---------- настройки (data/settings.json) ---------- */
 function default_settings(): array {
-    $d = ['auth' => null];
+    $d = ['auth' => null, 'update_auto' => true];   // update_auto - ставить новую версию кода из GitHub при запуске cron.php
     foreach (reports() as $m) $d = array_replace($d, $m['defaults'] ?? []);   // настройки по умолчанию каждого отчёта
     return $d;
 }

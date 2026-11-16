@@ -141,5 +141,46 @@ check('без архива: октябрь из кэша', $src['2026-10']['from
 check('без архива: пометка stale', array_keys((array)$m['stale']), ['2026-10']);
 check('без архива: предупреждение', (bool)preg_grep('/Октябрь 2026: архивный файл не найден/u', $w), true);
 
+/* ---------- самообновление кода (без сети) ---------- */
+check('upd: config.php не берём', upd_take('config.php'), false);
+check('upd: data/ не берём', upd_take('data/settings.json'), false);
+check('upd: выход из папки', upd_take('../x.php'), false);
+check('upd: .git не берём', upd_take('lib/.gitkeep'), false);
+check('upd: обычный файл', upd_take('reports/debt/view.js'), true);
+$zf = "{$tmp}/src.zip"; $z = new ZipArchive(); $z->open($zf, ZipArchive::CREATE);
+foreach (UPD_REQUIRED as $r) $z->addFromString("NSHMAIN-abc/site/{$r}", file_get_contents(APP_ROOT . '/' . $r));
+$z->addFromString('NSHMAIN-abc/site/reports/x/view.js', 'new();');
+$z->addFromString('NSHMAIN-abc/site/config.php', '<?php return [];');
+$z->addFromString('NSHMAIN-abc/site/data/settings.json', '{}');
+$z->addFromString('NSHMAIN-abc/site/VERSION', 'x');
+$z->addFromString('NSHMAIN-abc/prototype/a.py', 'x');
+$z->close();
+$files = upd_extract($zf);
+check('upd: из архива только site/ без config/data/VERSION', array_values(array_diff(array_keys($files), UPD_REQUIRED)), ['reports/x/view.js']);
+$okv = true; try { upd_validate($files); } catch (Throwable $e) { $okv = $e->getMessage(); }
+check('upd: проверка нового кода', $okv, true);
+$bad = $files; $bad['lib/reports.php'] = '<?php function (';
+$msg = ''; try { upd_validate($bad); } catch (Throwable $e) { $msg = $e->getMessage(); }
+check('upd: синтаксическая ошибка найдена', (bool)preg_match('/Синтаксическая ошибка в lib\/reports\.php/u', $msg), true);
+// установка в отдельную папку и откат
+$root = "{$tmp}/siteroot"; @mkdir("{$root}/reports/x", 0777, true); @mkdir("{$root}/lib", 0777, true);
+file_put_contents("{$root}/index.php", 'old index');
+file_put_contents("{$root}/config.php", 'secret');
+file_put_contents("{$root}/old.php", '<?php // удалён из репозитория');
+$plan = upd_plan($root, $files, ['old.php', 'index.php']);
+check('upd: план - удаляемые', $plan['removed'], ['old.php']);
+check('upd: план - изменённые', $plan['changed'], ['index.php']);
+check('upd: план - новых', count($plan['added']), count($files) - 1);
+upd_install($root, $files, $plan, "{$tmp}/bk1");
+check('upd: файл заменён', file_get_contents("{$root}/index.php"), $files['index.php']);
+check('upd: новый файл', file_get_contents("{$root}/reports/x/view.js"), 'new();');
+check('upd: удалённый файл', is_file("{$root}/old.php"), false);
+check('upd: config.php не тронут', file_get_contents("{$root}/config.php"), 'secret');
+upd_restore($root, "{$tmp}/bk1", $plan['added']);
+check('upd: откат - старый файл', file_get_contents("{$root}/index.php"), 'old index');
+check('upd: откат - удалённый вернулся', is_file("{$root}/old.php"), true);
+check('upd: откат - новый убран', is_file("{$root}/reports/x/view.js"), false);
+check('upd: откат - config.php цел', file_get_contents("{$root}/config.php"), 'secret');
+
 echo ($fails ? "ПРОВАЛЕНО: {$fails} из {$n}\n" : "OK: {$n} проверок\n");
 exit($fails ? 1 : 0);
