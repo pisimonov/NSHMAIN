@@ -7,6 +7,7 @@
 #   FTP_DIR       - папка сайта на сервере, со слешем на конце, например public_html/ или report.example.ru/public_html/
 # Необязательные переменные (там же, вкладка Variables):
 #   FTP_PROTOCOL  - ftps (по умолчанию) или ftp, если хостинг не поддерживает шифрование
+#   FTP_SECURITY  - strict (по умолчанию) или loose, если сертификат FTPS выдан на другое имя сервера
 #   SITE_URL      - адрес сайта, например https://report.example.ru - для проверки после выкладки
 name: Выкладка сайта
 
@@ -59,6 +60,8 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          # strict - проверять сертификат FTPS (по умолчанию). loose - только если сертификат выдан на другое имя сервера
+          security: ${{ vars.FTP_SECURITY || 'strict' }}
           local-dir: ./site/
           server-dir: ${{ secrets.FTP_DIR }}
           # Никогда не трогаем ключи и данные на сервере
