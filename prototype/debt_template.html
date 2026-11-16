@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Задолженность по роялти - прототип</title>
+<style>
+/*__BASECSS__*/
+/* --- отчёт по задолженности --- */
+:root{
+  --st-ok:#0ca30c; --st-late:#fab219; --st-open:#d03b3b; --st-wo:#8a6a4a; --st-nd:#c3c2b7;
+  --sev0:#e3f4e3; --sev1:#fdf1c7; --sev2:#f9d6d6; --sev3:#cfa57a;
+  --sev0s:#bfe6bf; --sev1s:#f6d66b; --sev2s:#ec9c9c; --sev3s:#8b5a2b; --sev3t:#ffffff;
+  --q1:#86b6ef; --q2:#5598e7; --q3:#2a78d6; --q4:#1c5cab; --q5:#104281;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --st-wo:#a88763; --st-nd:#55554f;
+  --sev0:#1c3320; --sev1:#3b3218; --sev2:#3d2020; --sev3:#4a3420;
+  --sev0s:#285c2c; --sev1s:#7a6118; --sev2s:#7f2e2e; --sev3s:#a8743f; --sev3t:#ffffff;
+  --q1:#184f95; --q2:#1c5cab; --q3:#3987e5; --q4:#6da7ec; --q5:#9ec5f4;
+}}
+:root[data-theme="dark"]{
+  --st-wo:#a88763; --st-nd:#55554f;
+  --sev0:#1c3320; --sev1:#3b3218; --sev2:#3d2020; --sev3:#4a3420;
+  --sev0s:#285c2c; --sev1s:#7a6118; --sev2s:#7f2e2e; --sev3s:#a8743f; --sev3t:#ffffff;
+  --q1:#184f95; --q2:#1c5cab; --q3:#3987e5; --q4:#6da7ec; --q5:#9ec5f4;
+}
+.grid-tiles.six{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:1300px){.grid-tiles.six{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.segbar{display:flex;gap:2px;height:28px;margin:10px 0 8px}
+.segbar div{border-radius:4px;color:#fff;font-size:11.5px;font-weight:600;display:flex;align-items:center;padding:0 6px;white-space:nowrap;overflow:hidden;min-width:2px}
+.chip.cat-mal{background:var(--bad-bg);color:var(--bad)}
+.chip.cat-rep{background:var(--warn-bg);color:var(--ink)}
+.chip.cat-one{background:var(--surface-2);color:var(--ink-2)}
+.chip.cat-new{background:var(--s1-wash);color:var(--ink)}
+.chip.cat-ok{background:var(--good-bg);color:var(--good)}
+.mx td.m{min-width:52px;text-align:right;padding:4px 5px;font-size:11.5px;border-left:1px solid var(--surface)}
+.mx td.m.s0{background:var(--sev0)} .mx td.m.s1{background:var(--sev1)} .mx td.m.s2{background:var(--sev2)} .mx td.m.s3{background:var(--sev3)}
+.mx td.m.s1.inc{background:var(--sev1s);font-weight:600} .mx td.m.s2.inc{background:var(--sev2s);font-weight:600} .mx td.m.s3.inc{background:var(--sev3s);color:var(--sev3t);font-weight:600}
+.mx td.m.na{background:transparent;color:var(--muted)}
+.mx td.m.nd{background:var(--surface-2);color:var(--ink-2)}
+.mx td.m .mk{font-size:10px;margin-left:2px}
+.mx tbody tr:hover td.m{filter:brightness(.96)}
+.sevkey{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+.hbars{display:grid;grid-template-columns:150px 1fr 120px;gap:8px 12px;align-items:center;font-size:12.5px}
+.hbars .track{display:flex;gap:2px;height:16px}
+.hbars .track div{height:100%;border-radius:3px;min-width:1px}
+.hbars .v{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.cmt{max-width:260px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom;color:var(--ink-2)}
+.brand .gsub{display:block;font-weight:400;letter-spacing:0;color:var(--ink-2);font-size:12px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brandrow">
+      <div class="brand">НЕ ШКОЛА<span class="gsub">Управляющая компания</span></div>
+      <!--__NAV__-->
+      <div class="asof" id="asof"></div>
+      <div class="spacer"></div>
+      <button class="seg" id="theme" style="padding:7px 10px;cursor:pointer;color:var(--ink-2);font:inherit" title="Светлая / тёмная тема">Тема</button>
+    </div>
+    <div class="filters">
+      <label>Регион
+        <select id="f-reg"><option value="all">Все</option><option value="ru">Россия</option><option value="foreign">Зарубежье</option></select>
+      </label>
+      <label>Направление <select id="f-dir"><option value="all">Все</option></select></label>
+      <label>Статус школы
+        <select id="f-sst"><option value="all">Все</option><option value="работает">Работает</option><option value="закрыта">Закрыта</option><option value="нет данных">Нет в отчёте выручки</option></select>
+      </label>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-v="overview">Обзор</button>
+      <button data-v="top">Топ-20 должников</button>
+      <button data-v="schools">Школы</button>
+      <button data-v="incidents">Первичные и повторные</button>
+      <button data-v="matrix">Матрица года</button>
+      <button data-v="returns">Возврат старых долгов</button>
+      <button data-v="dirs">Направления</button>
+      <button data-v="method">Методика</button>
+    </nav>
+  </div>
+</header>
+<div class="wrap"><main id="main"></main></div>
+<div id="tip"></div>
+
+<script>/*__DATA__*/</script>
+<script>
+"use strict";
+const DATA=window.DEBT_DATA, M=DATA.meta, S=DATA.schools, R=DATA.rows, CMT=DATA.comments;
+const CUR=M.curMi, TOL=M.tol;
+const RU_M=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+const RU_MS=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const yOf=mi=>Math.floor(mi/12), mOf=mi=>mi%12;
+const miS=mi=>RU_MS[mOf(mi)]+' '+String(yOf(mi)).slice(2);
+const miL=mi=>cap(RU_M[mOf(mi)])+' '+yOf(mi);
+const nf0=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
+const ok=v=>v!=null&&isFinite(v);
+const rub=v=>ok(v)?nf0.format(Math.round(v)):'н/д';
+const mln=v=>!ok(v)?'н/д':(v/1e6).toFixed(Math.abs(v)>=1e8?1:2).replace('.',',')+' млн ₽';
+const tys=v=>(v/1e3).toFixed(v>=1e5?0:1).replace('.',',');
+const pc=(v,d=1)=>!ok(v)?'н/д':(v*100).toFixed(d).replace('.',',')+'%';
+const axisFmt=v=>v===0?'0':v>=1e6?(+(v/1e6).toFixed(1)).toString().replace('.',',')+' млн':v>=1e3?(+(v/1e3).toFixed(0))+' тыс':String(+v.toFixed(2)).replace('.',',');
+
+const store={get(k,d){try{const v=localStorage.getItem('ns_debt_'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('ns_debt_'+k,JSON.stringify(v));}catch(e){}}};
+const state={tab:store.get('tab','overview'),reg:'all',dir:'all',sst:'all',year:yOf(CUR-1),mxOnlyInc:true,cat:'all',search:'',sorts:{},malN:3};
+
+function h(tag,attrs,...kids){const e=document.createElement(tag);if(attrs)for(const k in attrs){const v=attrs[k];if(v==null||v===false)continue;if(k==='class')e.className=v;else if(k==='text')e.textContent=v;else if(k==='style')e.style.cssText=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else e.setAttribute(k,v);}for(const c of kids.flat()){if(c==null||c===false)continue;e.appendChild(typeof c==='string'||typeof c==='number'?document.createTextNode(String(c)):c);}return e;}
+const SVGNS='http://www.w3.org/2000/svg';
+function s(tag,attrs,parent){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function txt(p,x,y,str,a){const t=s('text',Object.assign({x,y},a||{}),p);t.textContent=str;return t;}
+
+/* ---------- статусы строк ---------- */
+// строка: [школа, месяц начисления, начислено, долг, оплачено, месяц оплаты|null, списано, комментарий]
+const RS=0,RM=1,RA=2,RD=3,RP=4,RPM=5,RW=6,RC=7;
+const ST_LABEL={ok:'Оплачено в срок',offset:'Закрыто зачётом',late:'Оплачено с опозданием',open:'Не оплачено',wo:'Списано',not_due:'Срок не наступил'};
+function rowStatus(r){
+  const due=r[RM]+1;
+  if(r[RD]>TOL) return due>=CUR?'not_due':'open';
+  if(r[RW]>TOL) return 'wo';
+  if(r[RPM]!=null && r[RPM]-r[RM]>=2) return 'late';
+  if(r[RPM]==null && r[RA]>0) return 'offset';
+  return 'ok';
+}
+const ST=R.map(rowStatus);
+const isInc=st=>st==='open'||st==='late'||st==='wo';
+const lateBy=r=>r[RPM]!=null? r[RPM]-(r[RM]+1) : null;   // на сколько месяцев позже срока
+// возврат старого долга: оплата (полная или частичная) пришла позже срока
+const isReturn=r=>r[RPM]!=null && r[RPM]-r[RM]>=2 && r[RP]>0;
+
+/* ---------- по школам ---------- */
+const BY_SCHOOL=S.map(()=>[]);
+R.forEach((r,i)=>BY_SCHOOL[r[RS]].push(i));
+BY_SCHOOL.forEach(a=>a.sort((x,y)=>R[x][RM]-R[y][RM]));
+const AGE_B=[['1 мес.',1,1],['2-3 мес.',2,3],['4-6 мес.',4,6],['7-12 мес.',7,12],['более 12 мес.',13,1e9]];
+function schoolAgg(si){
+  const idx=BY_SCHOOL[si], a={si,debt:0,openN:0,consec:0,oldest:null,notDue:0,inc:[],inc12:0,lastPay:null,acc6:0,acc6n:0,ret12:0,acc12:0,paidOn12:0,acc12due:0,wo:0,age:[0,0,0,0,0],comment:''};
+  let run=0,prevOpen=null;
+  for(const i of idx){
+    const r=R[i], st=ST[i], due=r[RM]+1;
+    if(st==='open'){ a.debt+=r[RD]; a.openN++; if(a.oldest==null) a.oldest=r[RM];
+      run = (prevOpen!=null && r[RM]===prevOpen+1) ? run+1 : 1; prevOpen=r[RM]; a.consec=Math.max(a.consec,run);
+      const age=CUR-due; const b=AGE_B.findIndex(x=>age>=x[1]&&age<=x[2]); a.age[b<0?0:b]+=r[RD]; }
+    if(st==='not_due') a.notDue+=r[RD];
+    if(isInc(st)) { a.inc.push(i); if(due>=CUR-12 && due<CUR) a.inc12++; }
+    if(r[RPM]!=null && (a.lastPay==null||r[RPM]>a.lastPay)) a.lastPay=r[RPM];
+    if(r[RM]>=CUR-7 && r[RM]<=CUR-2){ a.acc6+=r[RA]; a.acc6n++; }
+    if(r[RM]>=CUR-13 && r[RM]<=CUR-2){ a.acc12+=r[RA]; if(st==='ok'||st==='offset') a.paidOn12+=r[RA]; a.acc12due+=r[RA]; }
+    if(isReturn(r) && r[RPM]>=CUR-12) a.ret12+=r[RP];
+    if(st==='wo') a.wo+=r[RW];
+    if(r[RC]>=0) a.comment=CMT[r[RC]];
+  }
+  a.debtTot=a.debt;
+  a.firstInc=a.inc.length? R[a.inc[0]][RM] : null;
+  a.lastInc=a.inc.length? R[a.inc[a.inc.length-1]][RM] : null;
+  a.monthsOfAcc = a.acc6n? a.debt/(a.acc6/a.acc6n) : null;
+  a.cat = a.openN>=state.malN ? 'mal' : a.inc.length>=2 ? 'rep' : a.inc.length===1 ? 'one' : 'ok';
+  a.isNew = a.firstInc!=null && a.firstInc+1>=CUR-3;
+  return a;
+}
+const CAT={mal:['cat-mal','Злостный'],rep:['cat-rep','Повторный'],one:['cat-one','Разовый'],ok:['cat-ok','Без нарушений']};
+
+function selSchools(){
+  return S.map((sc,i)=>i).filter(i=>{const sc=S[i];
+    if(state.reg!=='all'&&sc.reg!==state.reg) return false;
+    if(state.dir!=='all'&&sc.d!==state.dir) return false;
+    if(state.sst!=='all'&&sc.st!==state.sst) return false;
+    return true;});
+}
+function sumBy(arr,f){let t=0;for(const x of arr)t+=f(x);return t;}
+
+/* ---------- тултип ---------- */
+const tip=document.getElementById('tip');
+function showTip(ev,title,rows){tip.textContent='';tip.appendChild(h('div',{class:'t',text:title}));
+  for(const r of rows){const key=h('span',{class:'k'},r.color?h('span',{class:r.rect?'key-rect':'key-line',style:(r.rect?'background:':'border-color:')+r.color}):null,r.label);tip.appendChild(h('div',{class:'r'},key,h('b',{text:r.value})));}
+  tip.style.display='block';const w=tip.offsetWidth,hh=tip.offsetHeight;let x=ev.clientX+14,y=ev.clientY+14;if(x+w>innerWidth-8)x=ev.clientX-w-14;if(y+hh>innerHeight-8)y=ev.clientY-hh-14;tip.style.left=x+'px';tip.style.top=y+'px';}
+const hideTip=()=>tip.style.display='none';
+
+/* ---------- графики ---------- */
+function niceStep(max,count){const raw=max/count;const p=Math.pow(10,Math.floor(Math.log10(raw||1)));const n=raw/p;return(n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p;}
+function yScale(max){if(max<=0)max=1;const st=niceStep(max,5);const top=Math.ceil(max/st)*st;const t=[];for(let v=0;v<=top+st/1e6;v+=st)t.push(v);return{top,ticks:t};}
+/* столбчатая с накоплением: cats - подписи, series - [{label,color,data}], percent - 100% */
+function stackChart(host,cfg){
+  host.textContent='';
+  const W=Math.max(host.clientWidth,520),H=cfg.height||280,m={l:58,r:16,t:14,b:34};
+  const pw=W-m.l-m.r,ph=H-m.t-m.b,n=cfg.cats.length,band=pw/n;
+  const svg=s('svg',{viewBox:`0 0 ${W} ${H}`,height:H,role:'img','aria-label':cfg.aria||''},host);
+  const tot=cfg.cats.map((_,k)=>sumBy(cfg.series,se=>se.data[k]||0));
+  const ys=cfg.percent?{top:1,ticks:[0,.25,.5,.75,1]}:yScale(Math.max(...tot)*1.05);
+  const Y=v=>m.t+ph-v/ys.top*ph;
+  for(const t of ys.ticks){s('line',{x1:m.l,x2:m.l+pw,y1:Y(t),y2:Y(t),stroke:'var(--grid)','stroke-width':1},svg);txt(svg,m.l-8,Y(t)+4,cfg.percent?Math.round(t*100)+'%':axisFmt(t),{'text-anchor':'end'});}
+  const bw=Math.min(24,band*0.62);
+  cfg.cats.forEach((c,k)=>{
+    const x=m.l+k*band+(band-bw)/2; let acc=0; const T=tot[k]||0;
+    const segs=cfg.series.map(se=>({se,v:se.data[k]||0})).filter(z=>z.v>0);
+    segs.forEach((z,j)=>{
+      const v=cfg.percent?(T?z.v/T:0):z.v; const y0=Y(acc), y1=Y(acc+v); acc+=v;
+      const gap=j<segs.length-1?0:0; const hgt=y0-y1-(j>0?2:0); if(hgt<=0.3) return;
+      const top=y1, last=j===segs.length-1, r=last?Math.min(4,hgt):0;
+      s('path',{d:`M${x},${top+hgt}V${top+r}`+(r?`Q${x},${top} ${x+r},${top}H${x+bw-r}Q${x+bw},${top} ${x+bw},${top+r}`:`H${x+bw}`)+`V${top+hgt}Z`,fill:z.se.color},svg);
+    });
+    if(cfg.labelEvery?k%cfg.labelEvery===0||k===n-1:true) txt(svg,x+bw/2,H-m.b+16,c,{'text-anchor':'middle'});
+  });
+  s('line',{x1:m.l,x2:m.l+pw,y1:Y(0),y2:Y(0),stroke:'var(--axis)','stroke-width':1},svg);
+  const hl=s('rect',{y:m.t,height:ph,width:band,fill:'var(--ink)',opacity:0},svg);
+  const ov=s('rect',{x:m.l,y:m.t,width:pw,height:ph,fill:'transparent'},svg);
+  ov.addEventListener('pointermove',ev=>{const r=svg.getBoundingClientRect();const sx=(ev.clientX-r.left)*W/r.width;const k=Math.max(0,Math.min(n-1,Math.floor((sx-m.l)/band)));hl.setAttribute('x',m.l+k*band);hl.setAttribute('opacity',.06);const t=cfg.tooltip(k);showTip(ev,t.title,t.rows);});
+  ov.addEventListener('pointerleave',()=>{hl.setAttribute('opacity',0);hideTip();});
+}
+function legend(items){return h('div',{class:'legend'},...items.map(([c,l,shape])=>h('span',{},h('span',{class:shape==='line'?'key-line':'key-rect',style:(shape==='line'?'border-color:':'background:')+c}),l)));}
+
+/* ---------- таблица ---------- */
+function dataTable(host,id,cols,rows,opts){
+  opts=opts||{};
+  const st=state.sorts[id]||opts.defaultSort||{key:cols[1].key,dir:-1};
+  const col=cols.find(c=>c.key===st.key)||cols[0]; const sv=col.sort||(r=>r[col.key]);
+  rows=rows.slice().sort((a,b)=>{const x=sv(a),y=sv(b);const nx=x==null||(typeof x==='number'&&!isFinite(x)),ny=y==null||(typeof y==='number'&&!isFinite(y));if(nx&&ny)return 0;if(nx)return 1;if(ny)return -1;return(typeof x==='string'?x.localeCompare(y,'ru'):x-y)*st.dir;});
+  if(opts.limit) rows=rows.slice(0,opts.limit);
+  const thead=h('thead');
+  if(cols.some(c=>c.group)){const g=h('tr',{class:'g'});let i=0;while(i<cols.length){const gr=cols[i].group||'';let span=1;while(i+span<cols.length&&(cols[i+span].group||'')===gr)span++;g.appendChild(h('th',{colspan:span,class:(gr?'gs':'')+(i===0?' first':''),text:gr}));i+=span;}thead.appendChild(g);}
+  const hr=h('tr');
+  cols.forEach(c=>{const on=c.key===st.key;const th=h('th',{class:[c.cls||'',c.first?'first':'',c.noSort?'':'sortable',c.gs?'gs':''].join(' '),title:c.title||null},c.label,on&&!c.noSort?h('span',{class:'arr'},st.dir<0?' ↓':' ↑'):null);
+    if(!c.noSort)th.addEventListener('click',()=>{state.sorts[id]={key:c.key,dir:on?-st.dir:(c.cls==='l'?1:-1)};render();});hr.appendChild(th);});
+  thead.appendChild(hr);
+  const tb=h('tbody');
+  (opts.total?[...rows,opts.total]:rows).forEach(r=>{const tr=h('tr',{class:(r===opts.total?'tot':'')+(r._cls?' '+r._cls:'')});
+    cols.forEach(c=>{let cell=c.cell?c.cell(r):r[c.key];if(!(cell instanceof HTMLElement&&cell.tagName==='TD'))cell=h('td',{},cell==null?'':cell);if(c.cls)cell.classList.add(...c.cls.split(' ').filter(Boolean));if(c.first)cell.classList.add('first');if(c.gs)cell.classList.add('gs');tr.appendChild(cell);});tb.appendChild(tr);});
+  host.appendChild(h('div',{class:'tblwrap '+(opts.cls||''),style:opts.maxH?('max-height:'+opts.maxH):null},h('table',{},thead,tb)));
+}
+const catChip=a=>h('span',{class:'chip '+CAT[a.cat][0],text:CAT[a.cat][1]});
+const stChip=st=>st==='закрыта'?h('span',{class:'chip closed',text:'закрыта'}):st==='нет данных'?h('span',{class:'chip small',text:'нет данных'}):h('span',{class:'muted',text:'работает'});
+
+/* ---------- контекст ---------- */
+function ctx(){
+  const sel=selSchools(); const agg=sel.map(schoolAgg);
+  const debtors=agg.filter(a=>a.debt>0);
+  return {sel,agg,debtors};
+}
+function regionLabel(){return (state.reg==='ru'?'Россия':state.reg==='foreign'?'Зарубежье':'Вся сеть')+(state.dir!=='all'?' · '+state.dir:'')+(state.sst!=='all'?' · школа '+state.sst:'');}
+function tile(lbl,val,det,cls){return h('div',{class:'tile'},h('div',{class:'lbl',text:lbl}),h('div',{class:'val'+(cls?' '+cls:''),text:val}),h('div',{class:'det'},...det.map(d=>h('div',{},d))));}
+
+/* ---------- Обзор ---------- */
+function renderOverview(main,C){
+  const {agg,debtors}=C;
+  const debt=sumBy(debtors,a=>a.debt), mal=agg.filter(a=>a.cat==='mal'), malDebt=sumBy(mal,a=>a.debt);
+  const old=sumBy(debtors,a=>a.age[4]), closed=sumBy(debtors.filter(a=>S[a.si].st==='закрыта'),a=>a.debt);
+  const partners=new Set(debtors.map(a=>S[a.si].p)).size;
+  const notDue=sumBy(agg,a=>a.notDue);
+  // дисциплина последних 3 месяцев, по сумме начислений
+  const selSet=new Set(C.sel); let a3=0,o3=0; const last3=[CUR-4,CUR-3,CUR-2];
+  R.forEach((r,i)=>{ if(!selSet.has(r[RS])||!last3.includes(r[RM])) return; a3+=r[RA]; if(ST[i]==='ok'||ST[i]==='offset') o3+=r[RA]; });
+  let ret3=0; R.forEach((r,i)=>{ if(selSet.has(r[RS])&&isReturn(r)&&r[RPM]>=CUR-3&&r[RPM]<CUR) ret3+=r[RP]; });
+  main.appendChild(h('h2',{text:'Задолженность партнёров по роялти · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Просроченный долг - начисления, срок оплаты которых (месяц после начисления) уже прошёл. Начисления за '+miL(CUR-1).toLowerCase()+' оплачиваются в '+RU_M[mOf(CUR)].replace(/ь$/,'е').replace(/й$/,'е')+' - их '+mln(notDue)+' пока не считаются просрочкой.'}));
+  main.appendChild(h('div',{class:'grid-tiles six'},
+    tile('Просроченный долг',mln(debt),[debtors.length+' школ · '+partners+' партнёров']),
+    tile('Злостные (≥ '+state.malN+' мес. не оплачено)',mln(malDebt),[mal.length+' школ · '+pc(debt?malDebt/debt:null,0)+' долга']),
+    tile('Долг старше 12 месяцев',mln(old),[pc(debt?old/debt:null,0)+' долга - низкая вероятность возврата']),
+    tile('Долг закрытых школ',mln(closed),[pc(debt?closed/debt:null,0)+' долга · по отчёту выручки']),
+    tile('Оплачено в срок',pc(a3?o3/a3:null,0),['начисления '+miS(CUR-4)+' - '+miS(CUR-2)+', по сумме']),
+    tile('Вернули старых долгов',mln(ret3),['оплаты с опозданием за '+miS(CUR-3)+' - '+miS(CUR-1)])
+  ));
+  // структура по сроку
+  const ages=AGE_B.map((b,k)=>sumBy(debtors,a=>a.age[k]));
+  const cols=['var(--q1)','var(--q2)','var(--q3)','var(--q4)','var(--q5)'];
+  const card=h('div',{class:'card'},h('h3',{text:'Просроченный долг по сроку просрочки'}),h('p',{class:'sub',text:'Сколько месяцев прошло со срока оплаты. Чем правее, тем ниже шанс вернуть деньги без суда.'}));
+  const bar=h('div',{class:'segbar'});
+  ages.forEach((v,k)=>{ if(v<=0) return; const w=debt?v/debt*100:0; const lab=w>9?pc(v/debt,0):''; const d=h('div',{style:`flex:${v} 0 0;background:${cols[k]};color:${k<2?'#0b0b0b':'#fff'}`,title:AGE_B[k][0]+': '+rub(v)+' ₽'},lab); bar.appendChild(d); });
+  card.appendChild(bar);
+  card.appendChild(legend(AGE_B.map((b,k)=>[cols[k],b[0]+' · '+mln(ages[k])])));
+  main.appendChild(card);
+  // дисциплина по месяцам начисления
+  const months=[]; for(let mi=CUR-24; mi<=CUR-1; mi++) months.push(mi);
+  const keys=['ok','late','open','wo','not_due'], colors={ok:'var(--st-ok)',late:'var(--st-late)',open:'var(--st-open)',wo:'var(--st-wo)',not_due:'var(--st-nd)'};
+  const data={}; keys.forEach(k=>data[k]=months.map(()=>0)); const cnt={}; keys.forEach(k=>cnt[k]=months.map(()=>0));
+  R.forEach((r,i)=>{ if(!selSet.has(r[RS])) return; const k=months.indexOf(r[RM]); if(k<0) return; let st=ST[i]; if(st==='offset') st='ok'; data[st][k]+=r[RA]; cnt[st][k]++; });
+  const c2=h('div',{class:'card'},h('h3',{text:'Платёжная дисциплина по месяцам начисления'}),h('p',{class:'sub',text:'Доля суммы начисленного роялти: оплачено в срок, оплачено позже, не оплачено, списано. Последний месяц ещё в сроке оплаты.'}),
+    legend(keys.map(k=>[colors[k],ST_LABEL[k]])));
+  const ch=h('div',{class:'chart'}); c2.appendChild(ch); main.appendChild(c2);
+  stackChart(ch,{cats:months.map(miS),percent:true,labelEvery:3,height:260,aria:'Платёжная дисциплина',series:keys.map(k=>({label:ST_LABEL[k],color:colors[k],data:data[k]})),
+    tooltip:k=>{const T=sumBy(keys,x=>data[x][k]);return{title:'Начисления за '+miL(months[k]).toLowerCase()+': '+rub(T)+' ₽',rows:keys.filter(x=>data[x][k]>0).map(x=>({label:ST_LABEL[x]+' ('+cnt[x][k]+')',color:colors[x],rect:true,value:pc(data[x][k]/T,0)+' · '+rub(data[x][k])}))};}});
+  // Россия / зарубежье
+  main.appendChild(h('h2',{text:'Россия и зарубежье'}));
+  const regRows=['ru','foreign'].map(rg=>{const A=agg.filter(a=>S[a.si].reg===rg), D=A.filter(a=>a.debt>0);
+    const acc12=sumBy(A,a=>a.acc12due), on=sumBy(A,a=>a.paidOn12);
+    return {key:rg==='ru'?'Россия':'Зарубежье',schools:A.length,debtors:D.length,debt:sumBy(D,a=>a.debt),mal:A.filter(a=>a.cat==='mal').length,malDebt:sumBy(A.filter(a=>a.cat==='mal'),a=>a.debt),old:sumBy(D,a=>a.age[4]),acc12,disc:acc12?on/acc12:null};});
+  dataTable(main,'reg',[
+    {key:'key',label:'Регион',cls:'l',first:true,noSort:true},
+    {key:'schools',label:'Школ',noSort:true},{key:'debtors',label:'С долгом',noSort:true},
+    {key:'debt',label:'Просроченный долг, ₽',noSort:true,cell:r=>rub(r.debt)},
+    {key:'mal',label:'Злостных школ',noSort:true},{key:'malDebt',label:'Долг злостных, ₽',noSort:true,cell:r=>rub(r.malDebt)},
+    {key:'old',label:'Долг > 12 мес., ₽',noSort:true,cell:r=>rub(r.old)},
+    {key:'acc12',label:'Начислено за 12 мес., ₽',noSort:true,cell:r=>rub(r.acc12)},
+    {key:'disc',label:'Оплачено в срок, 12 мес.',noSort:true,cell:r=>pc(r.disc,0)}],regRows,{maxH:'none'});
+}
+
+/* ---------- Топ-20 ---------- */
+function partnerRows(C){
+  const m=new Map();
+  for(const a of C.agg){const p=S[a.si].p||'(не указан)';if(!m.has(p))m.set(p,[]);m.get(p).push(a);}
+  return [...m.entries()].map(([p,A])=>{const D=A.filter(a=>a.debt>0);return{key:p,schools:A.length,list:A,debtorsN:D.length,debt:sumBy(D,a=>a.debt),openN:sumBy(A,a=>a.openN),consec:Math.max(0,...A.map(a=>a.consec)),
+    oldest:D.length?Math.min(...D.map(a=>a.oldest)):null,lastPay:Math.max(-1,...A.map(a=>a.lastPay??-1)),mal:A.filter(a=>a.cat==='mal').length,inc12:sumBy(A,a=>a.inc12),
+    ret12:sumBy(A,a=>a.ret12),closed:A.filter(a=>S[a.si].st==='закрыта'&&a.debt>0).length,old:sumBy(D,a=>a.age[4]),reg:[...new Set(A.map(a=>S[a.si].reg))],
+    names:D.map(a=>S[a.si].c+' '+S[a.si].d).join(', '),comment:(D.find(a=>a.comment)||{}).comment||''};}).filter(r=>r.debt>0);
+}
+function renderTop(main,C){
+  const rows=partnerRows(C), total=sumBy(rows,r=>r.debt);
+  const top=rows.slice().sort((a,b)=>b.debt-a.debt).slice(0,20), topSum=sumBy(top,r=>r.debt);
+  main.appendChild(h('h2',{text:'Топ-20 должников · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Партнёры (столбец «Партнер») по сумме просроченного долга. На топ-20 приходится '+mln(topSum)+' из '+mln(total)+' ('+pc(total?topSum/total:null,0)+'). Всего партнёров с долгом: '+rows.length+'.'}));
+  const cols=[
+    {key:'rank',label:'#',noSort:true,cell:r=>String(r.rank)},
+    {key:'key',label:'Партнёр',cls:'l',first:true,noSort:true,cell:r=>h('td',{},h('b',{text:r.key}),h('div',{class:'muted',style:'font-size:11.5px',text:r.names}))},
+    {key:'debt',label:'Долг, ₽',noSort:true,cell:r=>h('td',{style:'font-weight:650'},rub(r.debt))},
+    {key:'share',label:'Доля',noSort:true,cell:r=>pc(r.debt/total,1)},
+    {key:'openN',label:'Неоплач. месяцев',noSort:true,title:'Сумма по всем школам партнёра'},
+    {key:'consec',label:'Подряд, макс.',noSort:true},
+    {key:'oldest',label:'Самый старый долг',noSort:true,cell:r=>r.oldest!=null?miS(r.oldest):''},
+    {key:'old',label:'Из них > 12 мес., ₽',noSort:true,cell:r=>rub(r.old)},
+    {key:'lastPay',label:'Последняя оплата',noSort:true,cell:r=>r.lastPay>=0?miS(r.lastPay):'нет'},
+    {key:'ret12',label:'Вернул долгов за 12 мес., ₽',noSort:true,cell:r=>r.ret12?rub(r.ret12):'-'},
+    {key:'mal',label:'Статус',cls:'l',noSort:true,cell:r=>h('td',{},r.mal?h('span',{class:'chip cat-mal',text:'злостный'}):h('span',{class:'chip cat-rep',text:'должник'}),r.closed?h('span',{class:'chip closed',style:'margin-left:4px',text:'закрыто школ: '+r.closed}):null)},
+    {key:'comment',label:'Комментарий',cls:'l',noSort:true,cell:r=>h('td',{},h('span',{class:'cmt',title:r.comment,text:r.comment}))}];
+  top.forEach((r,i)=>r.rank=i+1);
+  dataTable(main,'top',cols,top,{defaultSort:{key:'debt',dir:-1},maxH:'none'});
+  main.appendChild(h('h2',{text:'Все партнёры с долгом'}));
+  dataTable(main,'partners',[
+    {key:'key',label:'Партнёр',cls:'l',first:true},
+    {key:'debt',label:'Долг, ₽',cell:r=>rub(r.debt)},{key:'debtorsN',label:'Школ с долгом'},{key:'openN',label:'Неоплач. месяцев'},{key:'consec',label:'Подряд, макс.'},
+    {key:'oldest',label:'Самый старый',cell:r=>r.oldest!=null?miS(r.oldest):''},{key:'old',label:'> 12 мес., ₽',cell:r=>rub(r.old)},
+    {key:'inc12',label:'Нарушений за 12 мес.'},{key:'lastPay',label:'Последняя оплата',cell:r=>r.lastPay>=0?miS(r.lastPay):'нет'},
+    {key:'ret12',label:'Вернул за 12 мес., ₽',cell:r=>r.ret12?rub(r.ret12):'-'},
+    {key:'reg',label:'Регион',cls:'l',sort:r=>r.reg.join(),cell:r=>h('td',{},r.reg.map(x=>x==='ru'?'Россия':'Зарубежье').join(', '))}],rows,{defaultSort:{key:'debt',dir:-1}});
+}
+
+/* ---------- Школы ---------- */
+function renderSchools(main,C){
+  main.appendChild(h('h2',{text:'Школы (город + направление) · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Рабочий список для взыскания. Злостный - не оплачено '+state.malN+' и более месяцев; повторный - 2 и более нарушения за всю историю; разовый - одно нарушение. Нарушение - неоплата, оплата позже срока или списание.'}));
+  const catSel=h('select',{onchange:e=>{state.cat=e.target.value;render();}},...[['all','Все школы с нарушениями'],['debt','Только с долгом'],['mal','Злостные'],['rep','Повторные'],['one','Разовые'],['new','Новые проблемные (первое нарушение за 3 мес.)'],['every','Все школы']].map(([v,l])=>h('option',{value:v,selected:state.cat===v?'selected':null},l)));
+  const malIn=h('input',{type:'number',min:2,max:12,value:state.malN,onchange:e=>{state.malN=Math.max(2,+e.target.value||3);render();}});
+  const q=h('input',{type:'search',placeholder:'Город, направление или партнёр',value:state.search,style:'width:240px',oninput:e=>{state.search=e.target.value;clearTimeout(window.__st);window.__st=setTimeout(()=>{render();const el=document.querySelector('input[type=search]');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},250);}});
+  main.appendChild(h('div',{class:'toolbar'},h('label',{},'Показать',catSel),h('label',{},'Злостный от, мес.',malIn),q));
+  let rows=C.agg.slice();
+  const f=state.cat;
+  if(f==='all') rows=rows.filter(a=>a.inc.length>0); else if(f==='debt') rows=rows.filter(a=>a.debt>0);
+  else if(f==='new') rows=rows.filter(a=>a.isNew); else if(f!=='every') rows=rows.filter(a=>a.cat===f);
+  const qq=state.search.trim().toLowerCase(); if(qq) rows=rows.filter(a=>(S[a.si].c+' '+S[a.si].d+' '+S[a.si].p).toLowerCase().includes(qq));
+  const cnt=k=>C.agg.filter(a=>a.cat===k).length;
+  main.appendChild(h('div',{class:'summary'},
+    h('div',{class:'pill'},h('b',{class:'neg',text:String(cnt('mal'))}),'злостных · '+mln(sumBy(C.agg.filter(a=>a.cat==='mal'),a=>a.debt))),
+    h('div',{class:'pill'},h('b',{text:String(cnt('rep'))}),'повторных нарушителей'),
+    h('div',{class:'pill'},h('b',{text:String(cnt('one'))}),'разовых'),
+    h('div',{class:'pill'},h('b',{text:String(C.agg.filter(a=>a.isNew).length)}),'новых проблемных за 3 мес.'),
+    h('div',{class:'pill'},h('b',{class:'pos',text:String(cnt('ok'))}),'без нарушений')));
+  dataTable(main,'schools',[
+    {key:'city',label:'Город',cls:'l',first:true,sort:a=>S[a.si].c,cell:a=>h('td',{},S[a.si].c)},
+    {key:'dir',label:'Направление',cls:'l',sort:a=>S[a.si].d,cell:a=>h('td',{},S[a.si].d)},
+    {key:'p',label:'Партнёр',cls:'l',sort:a=>S[a.si].p,cell:a=>h('td',{},h('span',{class:'trunc',title:S[a.si].p,text:S[a.si].p}))},
+    {key:'cat',label:'Категория',cls:'l',sort:a=>({mal:0,rep:1,one:2,ok:3})[a.cat],cell:a=>h('td',{},catChip(a),a.isNew?h('span',{class:'chip cat-new',style:'margin-left:4px',text:'новый'}):null)},
+    {key:'st',label:'Школа',cls:'l',sort:a=>S[a.si].st,cell:a=>h('td',{},stChip(S[a.si].st))},
+    {key:'debt',label:'Долг, ₽',cell:a=>h('td',{style:'font-weight:600'},a.debt?rub(a.debt):'-')},
+    {key:'openN',label:'Неоплач. мес.'},{key:'consec',label:'Подряд'},
+    {key:'oldest',label:'Самый старый',cell:a=>a.oldest!=null?miS(a.oldest):''},
+    {key:'monthsOfAcc',label:'Долг, мес. роялти',title:'Долг / среднее месячное начисление за последние 6 месяцев',cell:a=>ok(a.monthsOfAcc)&&a.debt?a.monthsOfAcc.toFixed(1).replace('.',','):''},
+    {key:'inc12',label:'Нарушений 12 мес.'},{key:'incN',label:'Всего',sort:a=>a.inc.length,cell:a=>String(a.inc.length)},
+    {key:'firstInc',label:'Первое нарушение',cell:a=>a.firstInc!=null?miS(a.firstInc):''},
+    {key:'lastPay',label:'Последняя оплата',cell:a=>a.lastPay!=null?miS(a.lastPay):'нет'},
+    {key:'ret12',label:'Вернул за 12 мес., ₽',cell:a=>a.ret12?rub(a.ret12):'-'},
+    {key:'comment',label:'Комментарий',cls:'l',cell:a=>h('td',{},h('span',{class:'cmt',title:a.comment,text:a.comment}))}],rows,{defaultSort:{key:'debt',dir:-1}});
+}
+
+/* ---------- Первичные и повторные ---------- */
+function renderIncidents(main,C){
+  main.appendChild(h('h2',{text:'Первичные и повторные нарушения · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Нарушение - начисление, не оплаченное в срок (месяц после начисления): не оплачено, оплачено позже или списано. Первичное - первое нарушение школы с начала данных (январь 2023), повторное - все последующие.'}));
+  const months=[]; for(let mi=CUR-25; mi<=CUR-2; mi++) months.push(mi);
+  const prim=months.map(()=>0), rep=months.map(()=>0), primS=months.map(()=>0), repS=months.map(()=>0);
+  const recent=[];
+  for(const a of C.agg){ a.inc.forEach((i,k)=>{ const r=R[i]; const j=months.indexOf(r[RM]); const amt=ST[i]==='late'?r[RP]:ST[i]==='wo'?r[RW]:r[RD];
+    if(j>=0){ if(k===0){prim[j]++;primS[j]+=r[RA];} else {rep[j]++;repS[j]+=r[RA];} }
+    if(k===0 && r[RM]>=CUR-4) recent.push({a,i,r}); }); }
+  const card=h('div',{class:'card'},h('h3',{text:'Нарушения по месяцам начисления, количество школо-месяцев'}),legend([['var(--s2)','Первичные'],['var(--s1)','Повторные']]));
+  const ch=h('div',{class:'chart'}); card.appendChild(ch); main.appendChild(card);
+  stackChart(ch,{cats:months.map(miS),labelEvery:3,height:250,aria:'Первичные и повторные',series:[{label:'Первичные',color:'var(--s2)',data:prim},{label:'Повторные',color:'var(--s1)',data:rep}],
+    tooltip:k=>({title:'Начисления за '+miL(months[k]).toLowerCase(),rows:[{label:'Первичные',color:'var(--s2)',rect:true,value:prim[k]+' · '+rub(primS[k])+' ₽'},{label:'Повторные',color:'var(--s1)',rect:true,value:rep[k]+' · '+rub(repS[k])+' ₽'},{label:'Доля повторных',value:pc((prim[k]+rep[k])?rep[k]/(prim[k]+rep[k]):null,0)}]})});
+  const tP=sumBy(prim.slice(-12),x=>x), tR=sumBy(rep.slice(-12),x=>x);
+  main.appendChild(h('p',{class:'note',text:'За последние 12 месяцев: первичных нарушений '+tP+', повторных '+tR+' ('+pc((tP+tR)?tR/(tP+tR):null,0)+'). Высокая доля повторных означает, что проблема концентрируется в одних и тех же школах.'}));
+  main.appendChild(h('h2',{text:'Первичные нарушения за последние 3 месяца'}));
+  main.appendChild(h('p',{class:'sub',text:'Школы, которые впервые не заплатили в срок. Ранний контакт с ними дешевле, чем взыскание через полгода.'}));
+  dataTable(main,'recent',[
+    {key:'city',label:'Город',cls:'l',first:true,sort:x=>S[x.a.si].c,cell:x=>h('td',{},S[x.a.si].c)},
+    {key:'dir',label:'Направление',cls:'l',sort:x=>S[x.a.si].d,cell:x=>h('td',{},S[x.a.si].d)},
+    {key:'p',label:'Партнёр',cls:'l',sort:x=>S[x.a.si].p,cell:x=>h('td',{},S[x.a.si].p)},
+    {key:'m',label:'Месяц начисления',sort:x=>x.r[RM],cell:x=>miS(x.r[RM])},
+    {key:'acc',label:'Начислено, ₽',sort:x=>x.r[RA],cell:x=>rub(x.r[RA])},
+    {key:'st',label:'Что произошло',cls:'l',sort:x=>ST[x.i],cell:x=>h('td',{},ST_LABEL[ST[x.i]]+(ST[x.i]==='late'?' (на '+lateBy(x.r)+' мес.)':''))},
+    {key:'debt',label:'Долг сейчас, ₽',sort:x=>x.a.debt,cell:x=>x.a.debt?rub(x.a.debt):'-'},
+    {key:'cat',label:'Категория сейчас',cls:'l',sort:x=>x.a.cat,cell:x=>h('td',{},catChip(x.a))}],recent,{defaultSort:{key:'m',dir:-1},maxH:'none'});
+}
+
+/* ---------- Матрица года ---------- */
+const SEV=n=>n===0?0:n===1?1:n<=3?2:3;
+const SEV_L=['нет нарушений','1 нарушение','2-3 нарушения','4 и более'];
+function renderMatrix(main,C){
+  const years=[...new Set(R.map(r=>yOf(r[RM])))].sort();
+  main.appendChild(h('h2',{text:'Годовая матрица неплательщиков · '+state.year+' · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Строка - школа (город + направление), столбец - месяц начисления. В ячейке - текущий долг за этот месяц, тыс. ₽ (0 - оплачено). Цвет строки - число нарушений за год; месяцы с нарушением выделены насыщенным цветом и значком: ✕ не оплачено, ⟳ оплачено с опозданием, С - списано.'}));
+  const ysel=h('select',{onchange:e=>{state.year=+e.target.value;render();}},...years.map(y=>h('option',{value:y,selected:y===state.year?'selected':null},String(y))));
+  const only=h('input',{type:'checkbox',checked:state.mxOnlyInc?'checked':null,onchange:e=>{state.mxOnlyInc=e.target.checked;render();}});
+  main.appendChild(h('div',{class:'toolbar'},h('label',{},'Год',ysel),h('label',{},only,'только школы с нарушениями'),
+    h('span',{style:'font-size:12.5px;color:var(--ink-2)'},...[0,1,2,3].map(k=>h('span',{style:'margin-right:12px'},h('span',{class:'sevkey',style:'background:var(--sev'+k+'s)'}),SEV_L[k])))));
+  const y0=state.year*12; const rows=[];
+  for(const a of C.agg){
+    const cells=new Array(12).fill(null); let n=0, debt=0;
+    for(const i of BY_SCHOOL[a.si]){ const r=R[i]; if(yOf(r[RM])!==state.year) continue; const k=r[RM]-y0;
+      const c=cells[k]||{acc:0,debt:0,paid:0,st:[],i:[]}; c.acc+=r[RA]; c.debt+=Math.max(0,r[RD]); c.paid+=r[RP]; c.st.push(ST[i]); c.i.push(i); cells[k]=c; }
+    cells.forEach(c=>{ if(!c) return; c.inc=c.st.some(isInc); if(c.inc) n++; debt+=c.debt; });
+    if(!cells.some(Boolean)) continue;
+    rows.push({a,cells,n,debt,sev:SEV(n)});
+  }
+  const allRows=rows.slice(); if(state.mxOnlyInc) rows.splice(0,rows.length,...allRows.filter(r=>r.n>0));
+  const mark=c=>c.st.includes('open')?'✕':c.st.includes('wo')?'С':c.st.includes('late')?'⟳':'';
+  const cols=[
+    {key:'city',label:'Город',cls:'l',first:true,sort:x=>S[x.a.si].c,cell:x=>h('td',{},S[x.a.si].c)},
+    {key:'dir',label:'Направление',cls:'l',sort:x=>S[x.a.si].d,cell:x=>h('td',{},S[x.a.si].d)},
+    ...RU_MS.map((mn,k)=>({key:'m'+k,label:mn,noSort:true,cell:x=>{const c=x.cells[k], mi=y0+k;
+      if(!c) return h('td',{class:'m na'},mi>=CUR-1?'':'·');
+      if(c.st.every(z=>z==='not_due')) return h('td',{class:'m nd',title:'Срок оплаты не наступил'},tys(c.debt));
+      const td=h('td',{class:'m s'+x.sev+(c.inc?' inc':'')},c.debt>TOL?tys(c.debt):'0',c.inc?h('span',{class:'mk',text:mark(c)}):null);
+      td.addEventListener('pointermove',ev=>showTip(ev,S[x.a.si].c+' · '+S[x.a.si].d+' · '+miL(mi),[
+        {label:'Начислено',value:rub(c.acc)+' ₽'},{label:'Оплачено',value:rub(c.paid)+' ₽'},{label:'Долг',value:rub(c.debt)+' ₽'},
+        ...c.i.map(i=>({label:'Статус',value:ST_LABEL[ST[i]]+(ST[i]==='late'?' на '+lateBy(R[i])+' мес.':'')+(R[i][RPM]!=null?' · оплата '+miS(R[i][RPM]):'')}))]));
+      td.addEventListener('pointerleave',hideTip); return td;}})),
+    {key:'n',label:'Нарушений',gs:true,cell:x=>h('td',{style:'font-weight:650'},String(x.n))},
+    {key:'debt',label:'Долг за год, ₽',cell:x=>x.debt>TOL?rub(x.debt):'-'},
+    {key:'p',label:'Партнёр',cls:'l',sort:x=>S[x.a.si].p,cell:x=>h('td',{},h('span',{class:'trunc',title:S[x.a.si].p,text:S[x.a.si].p}))}];
+  const sevCnt=[0,1,2,3].map(k=>allRows.filter(r=>r.sev===k).length);
+  main.appendChild(h('div',{class:'summary'},...[3,2,1,0].map(k=>h('div',{class:'pill'},h('b',{text:String(sevCnt[k])}),h('span',{class:'sevkey',style:'background:var(--sev'+k+'s)'}),SEV_L[k]))));
+  dataTable(main,'matrix',cols,rows,{defaultSort:{key:'n',dir:-1},cls:'mx'});
+}
+
+/* ---------- Возврат старых долгов ---------- */
+const LATE_B=[['на 1 мес.',1,1],['2-3 мес.',2,3],['4-6 мес.',4,6],['7-12 мес.',7,12],['более 12 мес.',13,1e9]];
+function renderReturns(main,C){
+  const selSet=new Set(C.sel);
+  main.appendChild(h('h2',{text:'Возврат старых долгов · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Оплаты, поступившие позже срока (полные и частичные), по месяцу оплаты (столбец J). Цвет - на сколько месяцев позже срока пришли деньги.'}));
+  const months=[]; for(let mi=CUR-24; mi<=CUR; mi++) months.push(mi);
+  const data=LATE_B.map(()=>months.map(()=>0)), cnt=months.map(()=>0), sch=months.map(()=>new Set());
+  R.forEach((r,i)=>{ if(!selSet.has(r[RS])||!isReturn(r)) return; const k=months.indexOf(r[RPM]); if(k<0) return; const lb=lateBy(r); const b=LATE_B.findIndex(x=>lb>=x[1]&&lb<=x[2]); data[b<0?0:b][k]+=r[RP]; cnt[k]++; sch[k].add(r[RS]); });
+  const qc=['var(--q1)','var(--q2)','var(--q3)','var(--q4)','var(--q5)'];
+  const card=h('div',{class:'card'},h('h3',{text:'Погашение просроченных начислений по месяцам, ₽'}),legend(LATE_B.map((b,k)=>[qc[k],'опоздание '+b[0]])));
+  const ch=h('div',{class:'chart'}); card.appendChild(ch); main.appendChild(card);
+  stackChart(ch,{cats:months.map(miS),labelEvery:3,height:280,aria:'Возврат старых долгов',series:LATE_B.map((b,k)=>({label:b[0],color:qc[k],data:data[k]})),
+    tooltip:k=>({title:'Оплачено в '+miL(months[k]).toLowerCase()+(months[k]===CUR?' (месяц идёт)':''),rows:[...LATE_B.map((b,j)=>({label:'опоздание '+b[0],color:qc[j],rect:true,value:rub(data[j][k])})).filter((x,j)=>data[j][k]>0),{label:'Всего',value:rub(sumBy(data,d=>d[k]))+' ₽'},{label:'Начислений / школ',value:cnt[k]+' / '+sch[k].size}]})});
+  const rows=months.map((mi,k)=>({mi,sum:sumBy(data,d=>d[k]),cnt:cnt[k],sch:sch[k].size,old:data[3][k]+data[4][k]})).reverse();
+  const s12=sumBy(rows.slice(1,13),r=>r.sum), s12old=sumBy(rows.slice(1,13),r=>r.old);
+  main.appendChild(h('p',{class:'note',text:'За 12 полных месяцев возвращено '+mln(s12)+' просроченных начислений, из них опоздание более 6 месяцев - '+mln(s12old)+'. Для сравнения: текущий просроченный долг - '+mln(sumBy(C.debtors,a=>a.debt))+'. Важно: в реестре хранится один месяц оплаты на начисление, поэтому частичные оплаты относятся к месяцу, указанному в столбце J.'}));
+  dataTable(main,'returns',[
+    {key:'mi',label:'Месяц оплаты',cls:'l',first:true,noSort:true,cell:r=>h('td',{},miL(r.mi),r.mi===CUR?h('span',{class:'chip small',style:'margin-left:6px',text:'идёт'}):null)},
+    {key:'sum',label:'Возвращено, ₽',noSort:true,cell:r=>rub(r.sum)},{key:'old',label:'из них опоздание > 6 мес., ₽',noSort:true,cell:r=>rub(r.old)},
+    {key:'cnt',label:'Начислений',noSort:true},{key:'sch',label:'Школ',noSort:true}],rows,{maxH:'480px',defaultSort:{key:'mi',dir:-1}});
+}
+
+/* ---------- Направления ---------- */
+function renderDirs(main,C){
+  main.appendChild(h('h2',{text:'Сравнение по направлениям · '+(state.reg==='all'?'вся сеть':state.reg==='ru'?'Россия':'зарубежье')}));
+  main.appendChild(h('p',{class:'sub',text:'Начисления и дисциплина - за 12 месяцев начисления, срок оплаты которых уже прошёл ('+miS(CUR-13)+' - '+miS(CUR-2)+').'}));
+  const m=new Map(); for(const a of C.agg){const d=S[a.si].d;if(!m.has(d))m.set(d,[]);m.get(d).push(a);}
+  const rows=[...m.entries()].map(([d,A])=>{const D=A.filter(a=>a.debt>0),mal=A.filter(a=>a.cat==='mal');const acc12=sumBy(A,a=>a.acc12due),on=sumBy(A,a=>a.paidOn12);
+    return{key:d,schools:A.filter(a=>a.acc12>0).length,debtors:D.length,debt:sumBy(D,a=>a.debt),acc12,ratio:acc12?sumBy(D,a=>a.debt)/acc12:null,disc:acc12?on/acc12:null,mal:mal.length,malDebt:sumBy(mal,a=>a.debt),inc12:sumBy(A,a=>a.inc12),ages:AGE_B.map((b,k)=>sumBy(D,a=>a.age[k])),avg:D.length?sumBy(D,a=>a.debt)/D.length:null};}).filter(r=>r.debt>0||r.acc12>0);
+  const max=Math.max(...rows.map(r=>r.debt));
+  const qc=['var(--q1)','var(--q2)','var(--q3)','var(--q4)','var(--q5)'];
+  const card=h('div',{class:'card'},h('h3',{text:'Просроченный долг по направлениям и сроку просрочки'}),legend(AGE_B.map((b,k)=>[qc[k],b[0]])));
+  const g=h('div',{class:'hbars'});
+  rows.slice().sort((a,b)=>b.debt-a.debt).forEach(r=>{g.appendChild(h('div',{text:r.key}));const tr=h('div',{class:'track'});r.ages.forEach((v,k)=>{if(v>0)tr.appendChild(h('div',{style:`width:${(v/max*100).toFixed(2)}%;background:${qc[k]}`,title:AGE_B[k][0]+': '+rub(v)+' ₽'}));});g.appendChild(tr);g.appendChild(h('div',{class:'v',text:mln(r.debt)}));});
+  card.appendChild(g); main.appendChild(card);
+  dataTable(main,'dirs',[
+    {key:'key',label:'Направление',cls:'l',first:true},
+    {key:'schools',label:'Школ с начислениями'},{key:'acc12',label:'Начислено за 12 мес., ₽',cell:r=>rub(r.acc12)},
+    {key:'disc',label:'Оплачено в срок',cell:r=>pc(r.disc,0)},{key:'inc12',label:'Нарушений за 12 мес.'},
+    {key:'debtors',label:'Школ с долгом'},{key:'debt',label:'Просроченный долг, ₽',cell:r=>rub(r.debt)},
+    {key:'ratio',label:'Долг / начисления 12 мес.',cell:r=>pc(r.ratio,0)},{key:'avg',label:'Средний долг школы, ₽',cell:r=>rub(r.avg)},
+    {key:'mal',label:'Злостных'},{key:'malDebt',label:'Долг злостных, ₽',cell:r=>rub(r.malDebt)}],rows,{defaultSort:{key:'debt',dir:-1},maxH:'none'});
+}
+
+/* ---------- Методика ---------- */
+function renderMethod(main,C){
+  const box=h('div',{class:'method'});
+  const list=items=>{const ul=h('ul');items.forEach(x=>ul.appendChild(h('li',{text:x})));box.appendChild(ul);};
+  box.appendChild(h('h2',{text:'Источник'}));
+  list(['Файл «Реестр задолженности Не школа», лист «Реестр задолженности СМОТРЕТЬ СЮДА». Изменён: '+(M.modified||'н/д').replace('T',' ')+'. Дата отчёта: '+M.asOf+'.',
+    'Учитываются только строки с типом начисления «Роялти» ('+R.length+' строк, '+S.length+' школ). Открытый долг по другим типам в отчёт не входит: '+Object.entries(M.otherTypesDebt||{}).map(([k,v])=>k+' - '+rub(v)+' ₽').join('; ')+'.',
+    'Школа = Город (C) + Направление (D). Партнёр - из последнего по времени начисления школы.',
+    'Статус школы «закрыта» - по отметке «Закрыта» в отчёте по выручке за текущий месяц (сопоставление по городу и направлению).',
+    'Регион: зарубежье - города вне России по столбцу «Страна» отчёта по выручке (Алматы, Минск, Барселона, Мехико и др.); Валенсия добавлена вручную.']);
+  box.appendChild(h('h2',{text:'Статусы начисления'}));
+  list(['Срок оплаты - месяц, следующий за месяцем начисления (E + 1). Так оплачено '+R.filter((r,i)=>r[RPM]!=null&&r[RPM]-r[RM]===1).length+' из '+R.filter(r=>r[RPM]!=null).length+' оплаченных начислений.',
+    'Не оплачено - задолженность (H) больше '+TOL+' ₽ и срок оплаты прошёл. Частичная оплата тоже считается неоплатой на сумму остатка.',
+    'Срок не наступил - задолженность есть, но срок оплаты - текущий месяц.',
+    'Оплачено с опозданием - долг закрыт, месяц оплаты (J) позже срока.',
+    'Списано - долг закрыт списанием (столбец M больше '+TOL+' ₽).',
+    'Закрыто зачётом - долг 0, месяц оплаты не указан (например, зачёт возвратов ученикам).',
+    'Нарушение = не оплачено, оплачено с опозданием или списано.']);
+  box.appendChild(h('h2',{text:'Категории'}));
+  list(['Злостный - сейчас не оплачено '+state.malN+' и более месяцев (порог можно поменять на вкладке «Школы»).',
+    'Повторный - 2 и более нарушения за всю историю; разовый - одно; новый проблемный - первое нарушение пришлось на последние 3 месяца.',
+    'Первичное нарушение - первое нарушение школы с начала данных (январь 2023); повторные - все следующие.',
+    'Годовая матрица: зелёный - нет нарушений за год, жёлтый - 1, красный - 2-3, коричневый - 4 и более.',
+    'Долг в месяцах роялти - долг / среднее начисление за последние 6 месяцев: показывает, сколько месяцев работы школы нужно, чтобы погасить долг.']);
+  box.appendChild(h('h2',{text:'Ограничения данных'}));
+  list(['В реестре один месяц оплаты на начисление: если долг гасился частями, вся сумма относится к месяцу в столбце J.',
+    'Месяц списания (L) почти не заполнен, поэтому списания показаны по месяцу начисления.',
+    'Остатки до '+TOL+' ₽ (курсовые разницы) считаются погашенными.']);
+  main.appendChild(box);
+}
+
+/* ---------- каркас ---------- */
+function render(){
+  const main=document.getElementById('main'); const y=scrollY; main.textContent='';
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===state.tab));
+  const as=document.getElementById('asof'); as.textContent='';
+  as.append('Отчёт на ',h('b',{text:M.asOf.split('-').reverse().join('.')}),' · реестр изменён '+(M.modified?M.modified.slice(0,10).split('-').reverse().join('.'):'н/д'));
+  const C=ctx();
+  ({overview:renderOverview,top:renderTop,schools:renderSchools,incidents:renderIncidents,matrix:renderMatrix,returns:renderReturns,dirs:renderDirs,method:renderMethod}[state.tab]||renderOverview)(main,C);
+  scrollTo(0,y);
+}
+function init(){
+  const dirs=[...new Set(S.map(x=>x.d))].sort(); const fd=document.getElementById('f-dir'); dirs.forEach(d=>fd.appendChild(h('option',{value:d},d)));
+  fd.addEventListener('change',e=>{state.dir=e.target.value;render();});
+  document.getElementById('f-reg').addEventListener('change',e=>{state.reg=e.target.value;render();});
+  document.getElementById('f-sst').addEventListener('change',e=>{state.sst=e.target.value;render();});
+  document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.v;store.set('tab',state.tab);render();scrollTo(0,0);}));
+  document.getElementById('theme').addEventListener('click',()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('ns_dash_theme',JSON.stringify(r.dataset.theme));}catch(e){}render();});
+  try{const th=JSON.parse(localStorage.getItem('ns_dash_theme'));if(th)document.documentElement.dataset.theme=th;}catch(e){}
+  let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150);});
+  render();
+}
+init();
+</script>
+</body>
+</html>

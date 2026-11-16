@@ -8,3 +8,5 @@ site/data/*
 !site/data/.htaccess
 !site/data/index.php
 deploy/
+prototype/debt_prototype.html
+prototype/debt_data.js

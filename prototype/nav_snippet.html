@@ -1,0 +1,40 @@
+<!-- Глобальная навигация по отчётам (общая для всех страниц). __CUR__ заменяется на id текущего отчёта. -->
+<div class="gnav" id="gnav">
+  <button class="gnav-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="gnav-menu">
+    <span class="gnav-cur" id="gnav-cur">Отчёты</span><span class="gnav-car" aria-hidden="true">▾</span>
+  </button>
+  <div class="gnav-menu" id="gnav-menu" role="menu" hidden>
+    <div class="gnav-group">Выручка</div>
+    <a role="menuitem" data-id="revenue" href="dashboard_prototype.html"><b>Накопленная выручка месяца</b><span>Факт по дням, сравнение с прошлым месяцем и годом, прогноз</span></a>
+    <div class="gnav-group">Партнёры</div>
+    <a role="menuitem" data-id="debt" href="debt_prototype.html"><b>Задолженность по роялти</b><span>Неплатежи, просрочки, злостные должники, возврат долгов</span></a>
+  </div>
+</div>
+<style>
+.gnav{position:relative}
+.gnav-btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);border-radius:8px;padding:7px 12px;font:inherit;font-weight:600;cursor:pointer}
+.gnav-btn:hover,.gnav-btn[aria-expanded="true"]{background:var(--surface-2)}
+.gnav-car{color:var(--ink-2);font-size:12px}
+.gnav-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:60;min-width:340px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.16);padding:6px}
+.gnav-group{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:8px 10px 4px}
+.gnav-menu a{display:block;padding:8px 10px;border-radius:7px;color:var(--ink);text-decoration:none}
+.gnav-menu a span{display:block;font-size:12px;color:var(--ink-2);margin-top:1px}
+.gnav-menu a:hover,.gnav-menu a:focus{background:var(--surface-2);outline:none}
+.gnav-menu a[aria-current="page"]{background:var(--hl)}
+.gnav-menu a[aria-current="page"] b::after{content:" ✓";color:var(--accent)}
+</style>
+<script>
+(function(){
+  const nav=document.getElementById('gnav'), btn=nav.querySelector('.gnav-btn'), menu=nav.querySelector('.gnav-menu');
+  const cur=nav.querySelector('a[data-id="__CUR__"]');
+  if(cur){ cur.setAttribute('aria-current','page'); document.getElementById('gnav-cur').textContent=cur.querySelector('b').textContent; }
+  const items=()=>[...menu.querySelectorAll('a')];
+  const open=v=>{ menu.hidden=!v; btn.setAttribute('aria-expanded',String(v)); if(v) (cur||items()[0]).focus(); };
+  btn.addEventListener('click',e=>{ e.stopPropagation(); open(menu.hidden); });
+  document.addEventListener('click',e=>{ if(!nav.contains(e.target)) open(false); });
+  nav.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){ open(false); btn.focus(); }
+    if(!menu.hidden && (e.key==='ArrowDown'||e.key==='ArrowUp')){ e.preventDefault(); const l=items(), i=l.indexOf(document.activeElement); l[(i+(e.key==='ArrowDown'?1:-1)+l.length)%l.length].focus(); }
+  });
+})();
+</script>
