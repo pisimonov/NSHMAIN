@@ -101,5 +101,35 @@ check('debt partner latest', $minsk['p'], 'Петров');
 check('debt summary overdue', $out['debt']['summary']['Просроченный долг'], '80 000 ₽');   // 30000+30000+20000; октябрь в сроке
 check('debt comment', $dp['comments'], ['Ждем оплату']);
 
+/* ---------- 1-е число: прошлый месяц должен быть полным ---------- */
+function rollover(array $s, string $now, string $cur, array $ov = []): array {
+    $s['dev_now'] = $now; $s['current_url'] = $cur; $s['archive_overrides'] = $ov;
+    $w = []; $dir = report_dir('revenue');
+    $r = revenue_build(array_replace(default_settings(), $s), make_source_for_test($s), $dir, $w);
+    return [$r['payload']['meta'], $r['sources'], $w, $r['payload']['monthly']];
+}
+foreach (glob(report_dir('revenue') . '/cache/*.json') as $f) unlink($f);
+// а) бот ещё не переключил файл: основной файл = октябрь
+[$m, $src] = rollover($s, '2026-11-01 10:00', 'csv:2026-10');
+check('1-е: месяц', $m['cur'], '2026-10');
+check('1-е: срез - последний день', $m['asOf'], '2026-10-31');
+check('1-е: нет «день идёт»', $m['todayInCur'], false);
+check('1-е: срез не сдвинут', $m['asOfShifted'], false);
+// б) файл уже переключён на ноябрь, октябрь берётся из архива (лист «Предыдущие месяца»)
+foreach (glob(report_dir('revenue') . '/cache/*.json') as $f) unlink($f);
+[$m, $src, , $mon] = rollover($s, '2026-11-01 10:00', 'csv:2026-11');
+check('1-е, файл переключён: месяц', $m['cur'], '2026-10');
+check('1-е, файл переключён: источник октября', $src['2026-10']['kind'], 'archive');
+check('1-е, файл переключён: октябрь полный', (float)array_sum(array_filter($mon['2026-10'])), (float)$expect['2026-10']);
+check('1-е, файл переключён: нет пометки о неполных данных', (array)$m['stale'], []);
+// в) файл переключён, архива нет, есть только прошлая выгрузка основного файла -> пометка stale
+foreach (glob(report_dir('revenue') . '/cache/*.json') as $f) unlink($f);
+rollover($s, '2026-10-31 20:00', 'csv:2026-10');              // последнее обновление до смены файла
+csv_write("{$tmp}/csv/2026-11__archive.csv", [['Ноябрь 2025', 'csv:2025-11']]);   // архива октября ещё нет
+[$m, $src, $w] = rollover($s, '2026-11-01 10:00', 'csv:2026-11');
+check('без архива: октябрь из кэша', $src['2026-10']['from'] ?? '', 'live');
+check('без архива: пометка stale', array_keys((array)$m['stale']), ['2026-10']);
+check('без архива: предупреждение', (bool)preg_grep('/Октябрь 2026: архивный файл не найден/u', $w), true);
+
 echo ($fails ? "ПРОВАЛЕНО: {$fails} из {$n}\n" : "OK: {$n} проверок\n");
 exit($fails ? 1 : 0);

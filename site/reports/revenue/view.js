@@ -77,14 +77,18 @@ const cumN = (a,n) => { if(!a) return 0; let t=0; const k=Math.min(n,a.length); 
 const totA = a => a ? a.reduce((x,y)=>x+y,0) : 0;
 function silentDays(a, D){ if(!a) return D; let n=0; for(let d=D; d>=1; d--){ if((a[d-1]||0)>0) break; n++; } return n; }
 
+/* Месяц завершён (срез - последний день): сравниваем с полными месяцами базы, иначе - с теми же числами. */
+const isFull = D => D>=NCUR;
+const baseLbl = D => isFull(D) ? 'весь месяц' : '1-'+D;
 function schoolStat(i, D){
   const c=DATA.daily[CUR][i], p=HAS_PM?DATA.daily[PM][i]:null, l=HAS_LY?DATA.daily[LY][i]:null;
-  return { i, fact:cumN(c,D), yday:c&&c[D-1]||0, pmD:cumN(p,D), pmT:totA(p), lyD:cumN(l,D), lyT:totA(l),
+  const full=isFull(D);
+  return { i, fact:cumN(c,D), yday:c&&c[D-1]||0, pmD:full?totA(p):cumN(p,D), pmT:totA(p), lyD:full?totA(l):cumN(l,D), lyT:totA(l),
            inPM:!!p, inLY:!!l, silent:silentDays(c,D) };
 }
 function derive(a){
-  a.dPM = a.fact-a.pmD; a.rPM = a.pmD>0 ? a.fact/a.pmD-1 : null;
-  a.dLY = a.fact-a.lyD; a.rLY = a.lyD>0 ? a.fact/a.lyD-1 : null;
+  a.dPM = HAS_PM ? a.fact-a.pmD : null; a.rPM = a.pmD>0 ? a.fact/a.pmD-1 : null;
+  a.dLY = HAS_LY ? a.fact-a.lyD : null; a.rLY = a.lyD>0 ? a.fact/a.lyD-1 : null;
   a.fcPM = a.pmD>0 ? a.pmT*a.fact/a.pmD : null;
   a.fcLY = a.lyD>0 ? a.lyT*a.fact/a.lyD : null;
   a.flagPM = flagOf(a.fact, a.pmD); a.flagLY = flagOf(a.fact, a.lyD);
@@ -303,7 +307,7 @@ function dataTable(host, id, cols, rows, opts){
 
 /* общий набор метрик для сущности (город / школа / направление / партнёр) */
 function metricCols(D){
-  const pmL = mShort(PM)+', 1-'+D, lyL = mShort(LY)+', 1-'+D;
+  const pmL = mShort(PM)+', '+baseLbl(D), lyL = mShort(LY)+', '+baseLbl(D);
   return [
     {key:'fact', label:'Факт 1-'+D, cell:r=>rub(r.fact), title:'Выручка с 1 по '+D+' число текущего месяца, ₽'},
     {key:'pmD', label:pmL, group:'К прошлому месяцу ('+mLabel(PM)+')', gs:true, cell:r=>rub(r.pmD)},
@@ -379,13 +383,15 @@ const scopeName = () => (state.scope==='own'?'Собственная сеть':'
 function tile(lbl, val, det, valCls, hero){ return h('div',{class:'tile'}, h('div',{class:'lbl',text:lbl}), h('div',{class:'val'+(hero?' hero':'')+(valCls?' '+valCls:''),text:val}), h('div',{class:'det'},...det.map(d=>h('div',{},d)))); }
 function renderOverview(main, C){
   const {D,tot,cur,pm,ly,cmpPM,cmpLY}=C;
+  const stale=M.stale||{}; const sm=[CUR,PM,LY].filter(m=>stale[m]);
+  if(sm.length) main.appendChild(h('div',{class:'flash err',style:'margin-top:4px'},'Данные за '+sm.map(m=>mLabel(m).toLowerCase()+' - из выгрузки основного файла от '+new Date(stale[m]).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})).join('; ')+'. Архив этого месяца ещё не подключён, последний день может быть неполным. Как только архив появится на листе «Предыдущие месяца» или в настройках, отчёт пересчитается при следующем обновлении.'));
   main.appendChild(h('h2',{text:scopeName()+' · '+mLabel(CUR)}));
-  main.appendChild(h('p',{class:'sub',text:`Факт по ${dmy(CUR,D)} включительно. Сравнение - с теми же числами ${RU_MG[ym(PM)[1]-1]} ${ym(PM)[0]} и ${RU_MG[ym(LY)[1]-1]} ${ym(LY)[0]}. Школ в выборке: ${tot.n}, с продажами в этом месяце: ${tot.act}.`}));
+  main.appendChild(h('p',{class:'sub',text:(isFull(D) ? `Месяц завершён: факт за весь ${RU_M[ym(CUR)[1]-1]} сравнивается с полными месяцами - ${mLabel(PM).toLowerCase()} (${NPM} дн.) и ${mLabel(LY).toLowerCase()} (${NLY} дн.).` : `Факт по ${dmy(CUR,D)} включительно. Сравнение - с теми же числами ${RU_MG[ym(PM)[1]-1]} ${ym(PM)[0]} и ${RU_MG[ym(LY)[1]-1]} ${ym(LY)[0]}.`)+` Школ в выборке: ${tot.n}, с продажами в этом месяце: ${tot.act}.`}));
   const left = NCUR-D;
   main.appendChild(h('div',{class:'grid-tiles'},
     tile('Выручка 1-'+D+' '+RU_MG[ym(CUR)[1]-1], mln(tot.fact), [rub(tot.fact)+' ₽', 'за '+dm(CUR,D)+': '+rub(tot.yday)+' ₽'], null, true),
-    tile('К '+mDat(PM)+' (1-'+D+')', pct(tot.rPM), [h('span',{class:sgnCls(tot.dPM),text:sRub(tot.dPM)+' ₽'}), 'сопоставимые школы: '+pct(cmpPM.rPM)], sgnCls(tot.rPM)),
-    tile('К '+mDat(LY)+' (1-'+D+')', pct(tot.rLY), [h('span',{class:sgnCls(tot.dLY),text:sRub(tot.dLY)+' ₽'}), 'сопоставимые школы: '+pct(cmpLY.rLY)+' ('+cmpLY.n+' шк.)'], sgnCls(tot.rLY)),
+    tile('К '+mDat(PM)+' ('+baseLbl(D)+')', pct(tot.rPM), [h('span',{class:sgnCls(tot.dPM),text:ok(tot.dPM)?sRub(tot.dPM)+' ₽':'нет данных за базовый месяц'}), 'сопоставимые школы: '+pct(cmpPM.rPM)], sgnCls(tot.rPM)),
+    tile('К '+mDat(LY)+' ('+baseLbl(D)+')', pct(tot.rLY), [h('span',{class:sgnCls(tot.dLY),text:ok(tot.dLY)?sRub(tot.dLY)+' ₽':'нет данных за базовый месяц'}), 'сопоставимые школы: '+pct(cmpLY.rLY)+' ('+cmpLY.n+' шк.)'], sgnCls(tot.rLY)),
     tile('Прогноз от '+mGen(PM), mln(tot.fcPM), ['итог '+mShort(PM)+': '+mln(tot.pmT), h('span',{class:sgnCls(tot.fcPM-tot.pmT),text:'к итогу: '+pct(tot.pmT>0?tot.fcPM/tot.pmT-1:null)})]),
     tile('Прогноз от '+mGen(LY), mln(tot.fcLY), ['итог '+mShort(LY)+': '+mln(tot.lyT), h('span',{class:sgnCls(tot.fcLY-tot.lyT),text:'к итогу: '+pct(tot.lyT>0?tot.fcLY/tot.lyT-1:null)})])
   ));
@@ -429,13 +435,13 @@ function renderOverview(main, C){
       h('h3',{text:'Прогноз от '+refGen}),
       h('div',{class:'calc'},
         h('div',{text:'1. Факт 1-'+D+' '+RU_MG[ym(CUR)[1]-1]}), h('div',{text:rub(tot.fact)+' ₽'}),
-        h('div',{text:'2. '+refName+', 1-'+D}), h('div',{text:rub(refD)+' ₽'}),
+        h('div',{text:'2. '+refName+', '+baseLbl(D)}), h('div',{text:rub(refD)+' ₽'}),
         h('div',{text:'3. Темп = (1) / (2)'}), h('div',{text:ok(k)?k.toFixed(4).replace('.',','):'н/д'}),
         h('div',{text:'4. '+refName+' - весь месяц ('+refN+' дн.)'}), h('div',{text:rub(refT)+' ₽'}),
         h('div',{class:'res',text:'Прогноз = (4) × (3)'}), h('div',{class:'res',text:rub(fc)+' ₽'})),
       h('div',{class:'note'},
         left>0 ? 'Осталось дней: '+left+'. Чтобы повторить итог базы ('+mln(refT)+'), нужно в среднем '+(ok(need)?rub(need):'н/д')+' ₽ в день; сейчас в среднем '+rub(avgNow)+' ₽ в день. ' : 'Месяц завершён: прогноз равен факту. ',
-        'Простой расчёт «среднее в день × '+NCUR+'» дал бы '+mln(avgNow*NCUR)+' - он не учитывает рост продаж к концу месяца.'));
+        left>0 ? 'Простой расчёт «среднее в день × '+NCUR+'» дал бы '+mln(avgNow*NCUR)+' - он не учитывает рост продаж к концу месяца.' : ''));
   };
   main.appendChild(h('h2',{text:'Прогноз финальной выручки'}));
   main.appendChild(h('p',{class:'sub',text:'Логика: текущий месяц идёт с тем же темпом относительно базы, что и за прошедшие дни; форма накопления (рост к концу месяца) берётся из базового месяца.'}));
@@ -447,7 +453,7 @@ function renderOverview(main, C){
   if(state.scope==='own'){
     main.appendChild(h('h2',{text:'Филиалы Собственной сети'}));
     const noLY=C.stats.filter(x=>x.lyD<=0).map(x=>S[x.i].n);
-    main.appendChild(h('p',{class:'sub',text:'Собственная сеть - школы партнёра «'+M.ownPartner+'». Сопоставимые для сравнения с прошлым годом - филиалы с продажами в обоих периодах.'+(noLY.length?' Без продаж в '+mPrep(LY)+' (1-'+D+'): '+noLY.join(', ')+'.':'')}));
+    main.appendChild(h('p',{class:'sub',text:'Собственная сеть - школы партнёра «'+M.ownPartner+'». Сопоставимые для сравнения с прошлым годом - филиалы с продажами в обоих периодах.'+(noLY.length?' Без продаж в '+mPrep(LY)+' ('+baseLbl(D)+'): '+noLY.join(', ')+'.':'')}));
     const rows=C.stats.map(x=>Object.assign(derive(Object.assign({},x,{n:1,act:x.fact>0?1:0})),{key:S[x.i].n}));
     const cols=[{key:'key',label:'Филиал',cls:'l',first:true,cell:r=>h('td',{},r.key)},
       {key:'yday',label:'Вчера, ₽',cell:r=>rub(r.yday),title:'Продажи за '+dmy(CUR,D)}, ...metricCols(D)];
@@ -660,7 +666,7 @@ function renderMethod(main, C){
     'Выручка - столбец H «Выручка (рубли)» как есть, без вычета возвратов.',
     'Филиал - столбец K «Школа». Дубли строк «школа + дата» суммируются.',
     'Факт - сумма выручки с 1-го числа по дату среза включительно. Дата среза - вчера (D-1). Сегодняшний день показывается серым и в расчётах не участвует.',
-    'Сравнение - по числу месяца: 1-D текущего месяца против 1-D прошлого месяца и 1-D того же месяца прошлого года.',
+    'Сравнение - по числу месяца: 1-D текущего месяца против 1-D прошлого месяца и 1-D того же месяца прошлого года. Когда месяц завершён (срез - последний день, например 1-го числа следующего месяца), база - полные месяцы целиком, включая 31-е число.',
     'Сопоставимые школы - школы с продажами и в текущем периоде (1-D), и в базовом (1-D). Показываются рядом с итогом, чтобы отделить эффект открытий и закрытий.',
     'Флаг - отклонение ±'+state.thr+'% и более к базе за 1-D; если база меньше '+rub(state.minBase)+' ₽, флаг не ставится («мала база»). Если в базе продаж не было - «нет базы».',
     'Собственная сеть - школы, у которых в столбце «Партнер» указано «'+M.ownPartner+'» (по последнему месяцу, где школа есть в данных). Сейчас: '+(M.own.length?M.own.join(', '):'нет')+'.',

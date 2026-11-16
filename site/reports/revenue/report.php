@@ -122,7 +122,7 @@ function revenue_build(array $s, SheetSource $src, string $dir, array &$warn): a
             } catch (Throwable $e) { $warn[] = month_label($ym) . ': ' . $e->getMessage(); }
         }
         if (!$got && $cacheOk) {
-            $packs[$ym] = $cache['pack']; $sources[$ym] = ['kind' => 'cache', 'id' => $cache['id'], 'rows' => $cache['pack']['rows'], 'at' => $cache['fetchedAt']];
+            $packs[$ym] = $cache['pack']; $sources[$ym] = ['kind' => 'cache', 'id' => $cache['id'], 'rows' => $cache['pack']['rows'], 'at' => $cache['fetchedAt'], 'from' => $cache['kind']];
             if ($cache['kind'] === 'live') $warn[] = month_label($ym) . ': архивный файл не найден, использую последнюю выгрузку текущего файла от ' . date('d.m.Y H:i', strtotime($cache['fetchedAt'])) . '. Добавьте ссылку на архив этого месяца.';
         } elseif (!$got) {
             $warn[] = month_label($ym) . ': нет данных - добавьте ссылку на архив этого месяца в настройках или на лист «' . $s['archive_sheet'] . '».';
@@ -132,6 +132,9 @@ function revenue_build(array $s, SheetSource $src, string $dir, array &$warn): a
 
     // 4. Сборка
     $payload = revenue_payload($packs, $cur, $asOf, $now, $liveMonth, $s, $warn);
+    // месяцы, собранные из последней выгрузки основного файла (архив ещё не подключён) - данные могут быть неполными
+    $payload['meta']['stale'] = (object)[];
+    foreach ($sources as $ym => $x) if (($x['from'] ?? '') === 'live') $payload['meta']['stale']->$ym = $x['at'];
     return [
         'payload' => $payload,
         'sources' => $sources,
