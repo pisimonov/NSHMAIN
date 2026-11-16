@@ -77,13 +77,29 @@ jobs:
             data/**
       - name: Проверка сайта после выкладки
         if: vars.SITE_URL != ''
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
         run: |
+          url="${SITE_URL%/}"            # слеш на конце адреса не нужен
           expected="$(cat site/VERSION)"
+          code=""
           for i in 1 2 3 4 5; do
-            got="$(curl -fsS "${{ vars.SITE_URL }}/health.php" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')" || true
-            echo "На сайте: '${got}', ожидается: '${expected}'"
+            code="$(curl -sS -o health.out -w '%{http_code}' "$url/health.php" || true)"
+            got="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' health.out 2>/dev/null || true)"
+            echo "Попытка $i: $url/health.php -> HTTP $code, версия на сайте: '${got}', ожидается: '${expected}'"
             [ "$got" = "$expected" ] && exit 0
             sleep 10
           done
-          echo "::error::Сайт не ответил новой версией - проверьте журнал выкладки и сайт"
+          # Диагностика: robots.txt выкладывается вместе с сайтом и открывается без PHP
+          robots="$(curl -sS -o /dev/null -w '%{http_code}' "$url/robots.txt" || true)"
+          echo "Диагностика: $url/robots.txt -> HTTP $robots"
+          if [ "$code" = "404" ] && [ "$robots" = "404" ]; then
+            echo "::error::По адресу $url файлов сайта нет (HTTP 404). Файлы загружены в папку FTP_DIR, но SITE_URL указывает на другую папку. Сверьте FTP_DIR и SITE_URL (регистр букв в пути важен) - см. DEPLOY.md, раздел «Если что-то не так»."
+          elif [ "$code" = "500" ]; then
+            echo "::error::Сайт найден, но PHP выдаёт ошибку 500. Чаще всего на сервере нет config.php или у PHP нет нужных расширений - см. журнал ошибок в панели хостинга."
+          elif [ "$code" = "200" ]; then
+            echo "::error::Сайт отвечает, но версия '${got}' не совпадает с '${expected}': файлы, вероятно, загружаются в другую папку, чем та, что открывается по SITE_URL."
+          else
+            echo "::error::Сайт не ответил новой версией (HTTP $code) - проверьте журнал выкладки и сайт."
+          fi
           exit 1
