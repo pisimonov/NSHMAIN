@@ -67,7 +67,16 @@ final class GoogleSheetsSource implements SheetSource {
 
     public function email(): string { return $this->sa['client_email']; }
 
-    public function values(string $spreadsheetId, string $sheet, string $cols): array {
+    /** Названия листов таблицы (для поиска листа, если в настройках название записано неточно). */
+    public function titles(string $spreadsheetId): array {
+        $url = 'https://sheets.googleapis.com/v4/spreadsheets/' . rawurlencode($spreadsheetId) . '?fields=sheets.properties.title';
+        [$code, $resp] = http_request('GET', $url, ['Authorization: Bearer ' . $this->token()], null, 30);
+        $d = json_decode($resp, true);
+        if ($code !== 200) throw new RuntimeException('Google Sheets (' . $code . ', ' . $spreadsheetId . '): не удалось получить список листов: ' . mb_substr((string)($d['error']['message'] ?? $resp), 0, 200));
+        return array_map(function ($x) { return (string)$x['properties']['title']; }, $d['sheets'] ?? []);
+    }
+
+    public function values(string $spreadsheetId, string $sheet, string $cols, bool $retry = true): array {
         $range = "'" . str_replace("'", "''", $sheet) . "'!" . $cols;
         $url = 'https://sheets.googleapis.com/v4/spreadsheets/' . rawurlencode($spreadsheetId) . '/values/' . rawurlencode($range)
              . '?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING&majorDimension=ROWS';
@@ -77,6 +86,17 @@ final class GoogleSheetsSource implements SheetSource {
             if (($code === 429 || $code >= 500) && $try < 4) { sleep(2 * $try); continue; }
             $d = json_decode($resp, true);
             $msg = $d['error']['message'] ?? mb_substr($resp, 0, 200);
+            if ($code === 400 && $retry && stripos($msg, 'Unable to parse range') !== false) {
+                // листа с таким названием нет: ищем похожий (обрезанное или неточное название в настройках)
+                $titles = $this->titles($spreadsheetId);
+                $real = match_sheet_title($sheet, $titles);
+                if ($real !== null && $real !== $sheet) {
+                    app_log('Лист «' . $sheet . '» не найден, использован «' . $real . '» (' . $spreadsheetId . ')');
+                    return $this->values($spreadsheetId, $real, $cols, false);
+                }
+                throw new RuntimeException('Google Sheets: в таблице ' . $spreadsheetId . ' нет листа «' . $sheet . '». Укажите точное название на странице «Настройки». Листы в таблице: '
+                    . implode(', ', array_map(function ($t) { return '«' . $t . '»'; }, array_slice($titles, 0, 40))) . (count($titles) > 40 ? ' и др.' : '') . '.');
+            }
             if ($code === 403 || $code === 404) $msg .= ' - проверьте, что таблица открыта на чтение для ' . $this->sa['client_email'] . ' и что в Google Cloud включён Google Sheets API.';
             throw new RuntimeException('Google Sheets (' . $code . ', ' . $spreadsheetId . ', лист «' . $sheet . '»): ' . $msg);
         }

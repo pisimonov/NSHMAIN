@@ -35,6 +35,14 @@ check('month add', month_add('2026-01', -1), '2025-12');
 $err = [];
 check('month links', parse_month_links("2025-12 https://docs.google.com/spreadsheets/d/1WnyB2qqJlgqPQHqTEBOSnVZ7AJz206zD0Ps-FqDloeU/edit\nмусор", $err), ['2025-12' => 'https://docs.google.com/spreadsheets/d/1WnyB2qqJlgqPQHqTEBOSnVZ7AJz206zD0Ps-FqDloeU/edit']);
 check('month links error', count($err), 1);
+$titles = ['Лист1', 'Свод по задолженности на 15.11.2026', 'Реестр задолженности СМОТРЕТЬ СЮДА!!!', 'Сводная Задолженности для долгов', 'Реестр задолженности для свода', 'Свод Задолженности УУ'];
+check('лист: дописан конец', match_sheet_title('Реестр задолженности СМОТРЕТЬ СЮДА', $titles), 'Реестр задолженности СМОТРЕТЬ СЮДА!!!');
+check('лист: обрезан (xlsx, 31 символ)', match_sheet_title('Реестр задолженности СМОТРЕТЬ С', $titles), 'Реестр задолженности СМОТРЕТЬ СЮДА!!!');
+check('лист: регистр и пробелы', match_sheet_title('реестр  задолженности смотреть сюда!!! ', $titles), 'Реестр задолженности СМОТРЕТЬ СЮДА!!!');
+check('лист: другой конец слова', match_sheet_title('Реестр задолженности СМОТРЕТЬ СЮДА', array_merge(array_diff($titles, ['Реестр задолженности СМОТРЕТЬ СЮДА!!!']), ['Реестр задолженности СМОТРЕТЬ СЮДЫ'])), 'Реестр задолженности СМОТРЕТЬ СЮДЫ');
+check('лист: неоднозначно', match_sheet_title('Реестр задолженности', $titles), null);
+check('лист: нет похожего', match_sheet_title('Выручка', $titles), null);
+check('лист: точное совпадение', match_sheet_title('Лист1', $titles), 'Лист1');
 check('registry', array_keys(reports()), ['revenue', 'debt']);
 check('debt month', debt_mi('2023_1'), 2023 * 12);
 
