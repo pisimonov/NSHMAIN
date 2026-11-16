@@ -49,6 +49,23 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
         redirect('admin.php');
     }
+    if (in_array($act, ['code_check', 'code_update'], true)) {
+        $u = upd_run('страница настроек', $act === 'code_update', !empty($_POST['force']), true);
+        flash('Код сайта: ' . $u['msg'] . '.', $u['ok'] ? 'ok' : 'err');
+        redirect('admin.php#code');
+    }
+    if ($act === 'code_rollback') {
+        $u = upd_rollback();
+        flash('Код сайта: ' . $u['msg'] . '.', $u['ok'] ? 'ok' : 'err');
+        redirect('admin.php#code');
+    }
+    if ($act === 'code_auto') {
+        $s['update_auto'] = !empty($_POST['auto']);
+        save_settings($s);
+        app_log('Автообновление кода: ' . ($s['update_auto'] ? 'включено' : 'выключено'));
+        flash('Автообновление кода ' . ($s['update_auto'] ? 'включено' : 'выключено') . '.');
+        redirect('admin.php#code');
+    }
     if ($act === 'password') {
         $a = $s['auth'];
         if (!password_verify((string)$_POST['old'], (string)$a['hash'])) flash('Текущий пароль неверный.', 'err');
@@ -71,6 +88,9 @@ $host = $_SERVER['HTTP_HOST'] ?? 'ваш-домен';
 $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\');
 $cronUrl = 'https://' . $host . $base . '/cron.php?key=' . cfg('cron_key');
 $gsheet = function ($id) { return strpos((string)$id, 'csv:') === 0 ? e($id) : '<a href="https://docs.google.com/spreadsheets/d/' . e($id) . '/edit" target="_blank" rel="noopener noreferrer">' . e(substr((string)$id, 0, 10)) . '…</a>'; };
+$updLast = upd_last(); $updState = upd_state();
+$updWritable = is_writable(APP_ROOT) && is_writable(APP_ROOT . '/lib') && is_writable(APP_ROOT . '/reports');
+$updZip = class_exists('ZipArchive') || class_exists('PharData');
 $kinds = ['live' => 'основной файл', 'archive' => 'архив (загружен)', 'cache' => 'архив (из кэша)'];
 
 page_head('Настройки - отчёты НЕ ШКОЛА'); ?>
@@ -150,6 +170,27 @@ page_head('Настройки - отчёты НЕ ШКОЛА'); ?>
   <p style="font-size:13px;margin:12px 0 8px">Вариант 2 - если планировщик умеет только открывать ссылку:</p>
   <pre><?= e($cronUrl) ?></pre>
   <p class="hint" style="font-size:12px;color:var(--muted)">Ссылка содержит секретный ключ - не публикуйте её. Рекомендуемое расписание: каждые 2 часа с 07:00 до 23:00. Обновить один отчёт: добавьте <code>&amp;report=debt</code> к ссылке или <code>debt</code> к команде.</p>
+</section>
+
+<section id="code">
+  <h2>Обновление кода сайта</h2>
+  <p style="font-size:13px;margin:0 0 10px">Сайт сам скачивает новую версию из GitHub (<a href="https://github.com/<?= e(upd_repo()) ?>/commits/<?= e(upd_branch()) ?>" target="_blank" rel="noopener noreferrer"><?= e(upd_repo()) ?>, ветка <?= e(upd_branch()) ?></a>) и ставит её, только если для неё прошли автотесты. <code>config.php</code> и папка <code>data</code> не меняются. Перед заменой файлов сохраняется копия для отката.</p>
+  <?php if (!$updWritable): ?><div class="flash err">PHP не может записывать файлы в папку сайта - самообновление работать не будет. Нужно, чтобы PHP на хостинге работал от того же пользователя, что владеет файлами (в ispmanager это режим PHP «CGI» или «FPM» от имени владельца сайта).</div><?php endif; ?>
+  <?php if (!$updZip): ?><div class="flash err">На хостинге нет расширения PHP zip (и phar) - самообновление работать не будет. Включите zip в настройках PHP сайта.</div><?php endif; ?>
+  <div class="kv" style="margin-bottom:12px">
+    <div>Текущая версия</div><div><b><?= e(app_version()) ?></b><?= !empty($updState['at']) ? ' · поставлена ' . e(fmt_dt($updState['at'])) : '' ?></div>
+    <div>Последняя проверка</div><div><?= $updLast ? e(fmt_dt($updLast['at'])) . ' · ' . e($updLast['trigger'] ?? '') . ' · ' . ($updLast['ok'] ? '' : '<span class="err-t">') . e($updLast['msg']) . ($updLast['ok'] ? '' : '</span>') : 'ещё не было' ?></div>
+    <div>Автообновление</div><div><?= !empty($s['update_auto']) ? 'включено: при каждом запуске cron.php (см. «Ежедневное обновление»)' : 'выключено' ?></div>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <form method="post"><?= csrf_field() ?><input type="hidden" name="act" value="code_check"><button class="btn" type="submit">Проверить обновления</button></form>
+    <form method="post" style="display:flex;gap:10px;align-items:center"><?= csrf_field() ?><input type="hidden" name="act" value="code_update"><button class="btn primary" type="submit">Обновить код сейчас</button>
+      <label style="font-size:12.5px;display:flex;gap:4px;align-items:center"><input type="checkbox" name="force" value="1"> даже если тесты не прошли</label></form>
+    <?php if (!empty($updState['backup'])): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="act" value="code_rollback"><button class="btn" type="submit" title="Вернуть файлы, которые заменило последнее обновление">Откатить последнее обновление</button></form><?php endif; ?>
+    <form method="post" style="display:flex;gap:6px;align-items:center"><?= csrf_field() ?><input type="hidden" name="act" value="code_auto">
+      <label style="font-size:12.5px;display:flex;gap:4px;align-items:center"><input type="checkbox" name="auto" value="1"<?= !empty($s['update_auto']) ? ' checked' : '' ?>> ставить новые версии автоматически</label><button class="btn" type="submit">Сохранить</button></form>
+  </div>
+  <p class="hint" style="font-size:12px;color:var(--muted);margin-top:10px">Только код: <code><?= e('php ' . APP_ROOT . '/cron.php code') ?></code> или ссылка cron с <code>&amp;report=code</code>. После отката автообновление пропускает отменённую версию и ждёт следующую.</p>
 </section>
 
 <section>
