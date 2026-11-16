@@ -90,10 +90,14 @@ jobs:
             [ "$got" = "$expected" ] && exit 0
             sleep 10
           done
-          # Диагностика: robots.txt выкладывается вместе с сайтом и открывается без PHP
+          # Диагностика: сравниваем статические файлы сайта на сервере с только что выложенными
+          same() { curl -sS -o remote.tmp -w '%{http_code}' "$url/$1" >/dev/null 2>&1 || true; cmp -s remote.tmp "site/$1"; }
           robots="$(curl -sS -o /dev/null -w '%{http_code}' "$url/robots.txt" || true)"
-          echo "Диагностика: $url/robots.txt -> HTTP $robots"
-          if [ "$code" = "404" ] && [ "$robots" = "404" ]; then
+          ours=no; same robots.txt && same assets/nav.js && ours=yes
+          echo "Диагностика: $url/robots.txt -> HTTP $robots; статические файлы совпадают с выложенными: $ours"
+          if [ "$code" = "404" ] && [ "$ours" = "yes" ]; then
+            echo "::error::Файлы сайта лежат в нужной папке (статические файлы открываются), но PHP-файлы отвечают 404. Сервер не исполняет PHP в этой папке: проверьте в панели хостинга, что для сайта включён PHP (обработчик PHP), и нет ли в родительских папках (.htaccess, настройки CMS основного сайта) правил, которые перехватывают *.php - см. DEPLOY.md, раздел «Если что-то не так»."
+          elif [ "$code" = "404" ]; then
             echo "::error::По адресу $url файлов сайта нет (HTTP 404). Файлы загружены в папку FTP_DIR, но SITE_URL указывает на другую папку. Сверьте FTP_DIR и SITE_URL (регистр букв в пути важен) - см. DEPLOY.md, раздел «Если что-то не так»."
           elif [ "$code" = "500" ]; then
             echo "::error::Сайт найден, но PHP выдаёт ошибку 500. Чаще всего на сервере нет config.php или у PHP нет нужных расширений - см. журнал ошибок в панели хостинга."
