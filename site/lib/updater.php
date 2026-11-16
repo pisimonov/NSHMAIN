@@ -176,6 +176,7 @@ function upd_rmtree(string $d): void {
     @rmdir($d);
 }
 function upd_finish(array $last): array {
+    $last += ['ok' => false, 'updated' => false];
     $last['at'] = date('c');
     write_json_atomic(upd_dir() . '/last.json', $last);
     app_log('Обновление кода (' . ($last['trigger'] ?? '') . '): ' . $last['msg']);
@@ -188,9 +189,9 @@ function upd_finish(array $last): array {
  * $manual=true - запуск кнопкой: ставит и версию, от которой раньше откатились (автообновление её пропускает).
  */
 function upd_run(string $trigger, bool $apply = true, bool $force = false, bool $manual = false): array {
-    $last = ['trigger' => $trigger, 'ok' => false, 'updated' => false];
+    $last = ['trigger' => $trigger];   // ok / updated / msg дополняются в upd_finish
     $lock = fopen(upd_dir() . '/lock', 'c');
-    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) return $last + ['msg' => 'обновление кода уже выполняется'];
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) return ['trigger' => $trigger, 'ok' => false, 'updated' => false, 'msg' => 'обновление кода уже выполняется'];
     try {
         $head = upd_remote_head();
         $last['remote'] = $head;
@@ -239,7 +240,7 @@ function upd_rollback(): array {
     upd_restore(APP_ROOT, $s['backup'], $s['added'] ?? []);
     $prev = (string)($s['prev'] ?? '');
     write_json_atomic(upd_dir() . '/state.json', ['sha' => $prev, 'at' => date('c'), 'files' => [], 'prev' => '', 'backup' => null, 'added' => [], 'skip' => $s['sha']]);
-    @file_put_contents(APP_ROOT . '/VERSION', date('Y-m-d') . ' ' . substr($prev, 0, 7) . " (откат)\n");
+    @file_put_contents(APP_ROOT . '/VERSION', date('Y-m-d') . ' ' . ($prev !== '' ? substr($prev, 0, 7) : 'прежняя версия') . " (откат)\n");
     if (function_exists('opcache_reset')) @opcache_reset();
     upd_rmtree($s['backup']);
     $r = ['trigger' => 'откат', 'ok' => true, 'updated' => true, 'msg' => 'откат с ' . substr((string)$s['sha'], 0, 7) . ' на ' . ($prev !== '' ? substr($prev, 0, 7) : 'прежнюю версию')];
