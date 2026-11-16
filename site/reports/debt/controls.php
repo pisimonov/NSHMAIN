@@ -7,10 +7,13 @@
   <label>Статус школы
     <select id="f-sst"><option value="all">Все</option><option value="работает">Работает</option><option value="закрыта">Закрыта</option><option value="нет данных">Нет в отчёте выручки</option></select>
   </label>
+  <label title="Сколько месяцев прошло со срока оплаты самого старого неоплаченного начисления школы">Самый старый долг
+    <select id="f-age"><option value="all">Все школы</option><option value="debt">Есть просроченный долг</option><option value="0">1 мес.</option><option value="1">2-3 мес.</option><option value="2">4-6 мес.</option><option value="3">7-12 мес.</option><option value="4">более 12 мес.</option><option value="none">Нет просроченного долга</option></select>
+  </label>
 </div>
 <nav class="tabs" id="tabs">
   <button data-v="overview">Обзор</button>
-  <button data-v="top">Топ-20 должников</button>
+  <button data-v="top">Топ-50 должников</button>
   <button data-v="schools">Школы</button>
   <button data-v="incidents">Первичные и повторные</button>
   <button data-v="matrix">Матрица года</button>
