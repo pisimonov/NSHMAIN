@@ -16,7 +16,7 @@ const pc=(v,d=1)=>!ok(v)?'н/д':(v*100).toFixed(d).replace('.',',')+'%';
 const axisFmt=v=>v===0?'0':v>=1e6?(+(v/1e6).toFixed(1)).toString().replace('.',',')+' млн':v>=1e3?(+(v/1e3).toFixed(0))+' тыс':String(+v.toFixed(2)).replace('.',',');
 
 const store={get(k,d){try{const v=localStorage.getItem('ns_debt_'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('ns_debt_'+k,JSON.stringify(v));}catch(e){}}};
-const state={tab:store.get('tab','overview'),reg:'all',dir:'all',sst:'all',year:yOf(CUR-1),mxOnlyInc:true,cat:'all',search:'',sorts:{},malN:M.mal||3};
+const state={tab:store.get('tab','overview'),reg:'all',dir:'all',sst:'all',age:'all',year:yOf(CUR-1),mxOnlyInc:true,cat:'all',search:'',sorts:{},malN:M.mal||3};
 
 function h(tag,attrs,...kids){const e=document.createElement(tag);if(attrs)for(const k in attrs){const v=attrs[k];if(v==null||v===false)continue;if(k==='class')e.className=v;else if(k==='text')e.textContent=v;else if(k==='style')e.style.cssText=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else e.setAttribute(k,v);}for(const c of kids.flat()){if(c==null||c===false)continue;e.appendChild(typeof c==='string'||typeof c==='number'?document.createTextNode(String(c)):c);}return e;}
 const SVGNS='http://www.w3.org/2000/svg';
@@ -46,6 +46,9 @@ const BY_SCHOOL=S.map(()=>[]);
 R.forEach((r,i)=>BY_SCHOOL[r[RS]].push(i));
 BY_SCHOOL.forEach(a=>a.sort((x,y)=>R[x][RM]-R[y][RM]));
 const AGE_B=[['1 мес.',1,1],['2-3 мес.',2,3],['4-6 мес.',4,6],['7-12 мес.',7,12],['более 12 мес.',13,1e9]];
+// срок самого старого просроченного долга школы: индекс корзины AGE_B, -1 - просроченного долга нет
+const OLDEST_B=BY_SCHOOL.map(idx=>{const i=idx.find(j=>ST[j]==='open');if(i==null)return -1;const age=CUR-(R[i][RM]+1);const b=AGE_B.findIndex(x=>age>=x[1]&&age<=x[2]);return b<0?0:b;});
+const ageOk=si=>{const a=state.age;if(a==='all')return true;const b=si>=0?OLDEST_B[si]:-1;return a==='debt'?b>=0:a==='none'?b<0:b===+a;};
 function schoolAgg(si){
   const idx=BY_SCHOOL[si], a={si,debt:0,openN:0,consec:0,oldest:null,notDue:0,inc:[],inc12:0,lastPay:null,acc6:0,acc6n:0,ret12:0,acc12:0,paidOn12:0,acc12due:0,wo:0,age:[0,0,0,0,0],comment:''};
   let run=0,prevOpen=null;
@@ -78,7 +81,7 @@ function selSchools(){
     if(state.reg!=='all'&&sc.reg!==state.reg) return false;
     if(state.dir!=='all'&&sc.d!==state.dir) return false;
     if(state.sst!=='all'&&sc.st!==state.sst) return false;
-    return true;});
+    return ageOk(i);});
 }
 function sumBy(arr,f){let t=0;for(const x of arr)t+=f(x);return t;}
 
@@ -149,7 +152,9 @@ function ctx(){
   const debtors=agg.filter(a=>a.debt>0);
   return {sel,agg,debtors};
 }
-function regionLabel(){return (state.reg==='ru'?'Россия':state.reg==='foreign'?'Зарубежье':'Вся сеть')+(state.dir!=='all'?' · '+state.dir:'')+(state.sst!=='all'?' · школа '+state.sst:'');}
+const AGE_LBL={debt:'есть просроченный долг',none:'нет просроченного долга'};
+function regionLabel(){return (state.reg==='ru'?'Россия':state.reg==='foreign'?'Зарубежье':'Вся сеть')+(state.dir!=='all'?' · '+state.dir:'')+(state.sst!=='all'?' · школа '+state.sst:'')
+  +(state.age!=='all'?' · '+(AGE_LBL[state.age]||'самый старый долг '+AGE_B[+state.age][0]):'');}
 function tile(lbl,val,det,cls){return h('div',{class:'tile'},h('div',{class:'lbl',text:lbl}),h('div',{class:'val'+(cls?' '+cls:''),text:val}),h('div',{class:'det'},...det.map(d=>h('div',{},d))));}
 
 /* ---------- Обзор ---------- */
@@ -165,6 +170,7 @@ function renderOverview(main,C){
   let ret3=0; R.forEach((r,i)=>{ if(selSet.has(r[RS])&&isReturn(r)&&r[RPM]>=CUR-3&&r[RPM]<CUR) ret3+=r[RP]; });
   main.appendChild(h('h2',{text:'Задолженность партнёров по роялти · '+regionLabel()}));
   main.appendChild(h('p',{class:'sub',text:'Просроченный долг - начисления, срок оплаты которых (месяц после начисления) уже прошёл. Начисления за '+miL(CUR-1).toLowerCase()+' оплачиваются в '+RU_M[mOf(CUR)].replace(/ь$/,'е').replace(/й$/,'е')+' - их '+mln(notDue)+' пока не считаются просрочкой.'}));
+  if(state.age!=='all'&&state.age!=='none') main.appendChild(h('p',{class:'note',text:'Фильтр «Самый старый долг» отбирает школы по возрасту их самого старого неоплаченного начисления. Суммы ниже - весь просроченный долг этих школ, включая более свежие месяцы.'}));
   main.appendChild(h('div',{class:'grid-tiles six'},
     tile('Просроченный долг',mln(debt),[debtors.length+' школ · '+partners+' партнёров']),
     tile('Злостные (≥ '+state.malN+' мес. не оплачено)',mln(malDebt),[mal.length+' школ · '+pc(debt?malDebt/debt:null,0)+' долга']),
@@ -207,7 +213,8 @@ function renderOverview(main,C){
     {key:'disc',label:'Оплачено в срок, 12 мес.',noSort:true,cell:r=>pc(r.disc,0)}],regRows,{maxH:'none'});
 }
 
-/* ---------- Топ-20 ---------- */
+/* ---------- Топ-50 ---------- */
+const TOP_N=50;
 function partnerRows(C){
   const m=new Map();
   for(const a of C.agg){const p=S[a.si].p||'(не указан)';if(!m.has(p))m.set(p,[]);m.get(p).push(a);}
@@ -218,9 +225,9 @@ function partnerRows(C){
 }
 function renderTop(main,C){
   const rows=partnerRows(C), total=sumBy(rows,r=>r.debt);
-  const top=rows.slice().sort((a,b)=>b.debt-a.debt).slice(0,20), topSum=sumBy(top,r=>r.debt);
-  main.appendChild(h('h2',{text:'Топ-20 должников · '+regionLabel()}));
-  main.appendChild(h('p',{class:'sub',text:'Партнёры (столбец «Партнер») по сумме просроченного долга. На топ-20 приходится '+mln(topSum)+' из '+mln(total)+' ('+pc(total?topSum/total:null,0)+'). Всего партнёров с долгом: '+rows.length+'.'}));
+  const top=rows.slice().sort((a,b)=>b.debt-a.debt).slice(0,TOP_N), topSum=sumBy(top,r=>r.debt);
+  main.appendChild(h('h2',{text:'Топ-'+TOP_N+' должников · '+regionLabel()}));
+  main.appendChild(h('p',{class:'sub',text:'Партнёры (столбец «Партнер») по сумме просроченного долга. На топ-'+Math.min(TOP_N,rows.length)+' приходится '+mln(topSum)+' из '+mln(total)+' ('+pc(total?topSum/total:null,0)+'). Всего партнёров с долгом: '+rows.length+'.'}));
   const cols=[
     {key:'rank',label:'#',noSort:true,cell:r=>String(r.rank)},
     {key:'key',label:'Партнёр',cls:'l',first:true,noSort:true,cell:r=>h('td',{},h('b',{text:r.key}),h('div',{class:'muted',style:'font-size:11.5px',text:r.names}))},
@@ -400,8 +407,8 @@ function renderDirs(main,C){
 
 /* ---------- Проверка начислений роялти ---------- */
 const CHK=DATA.check||{months:[],rows:[]};
-const CHK_FEE=5000, CHK_RATE=0.10;
-const chkState={per:3,base:'max',color:'rub',redRub:20000,redPct:20,show:'all',own:'hide'};
+const CHK_RATE=0.10;
+const chkState={per:3,color:'rub',redRub:20000,redPct:20,show:'all',own:'hide'};
 function isDarkTheme(){const r=document.documentElement;return r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;}
 /* зелёный -> жёлтый -> красный по доле t от 0 до 1 */
 function heat(t){
@@ -411,9 +418,10 @@ function heat(t){
 }
 function chkCell(v){ // v = [выручка, возвраты, начислено]
   const [rev,ref,acc]=v; const o={rev,ref,acc};
-  o.max = rev!=null ? CHK_RATE*rev : null;
-  o.calc = rev!=null ? (rev>0 ? CHK_RATE*(rev-(ref||0))+CHK_FEE : 0) : null;
-  const base = chkState.base==='max'?o.max:o.calc;
+  o.max = rev!=null ? CHK_RATE*rev : null;                              // справочно: 10% выручки до возвратов
+  o.calc = rev!=null ? (rev>0 ? CHK_RATE*(rev-(ref||0)) : 0) : null;     // основной расчёт: 10% × (выручка - возвраты)
+  o.refShare = rev>0 && ref!=null ? ref/rev : null;
+  const base = o.calc;
   o.kind = rev==null ? (acc!=null?'norev':'none') : (acc==null ? (rev>0?'noacc':'none') : 'both');
   o.diff = (o.kind==='both'||o.kind==='noacc') ? base-(acc||0) : null;
   o.pct = o.diff!=null && base>0 ? o.diff/base : null;
@@ -424,24 +432,23 @@ function renderCheck(main,C){
   main.appendChild(h('h2',{text:'Проверка начисления роялти · '+regionLabel()}));
   if(!months.length){ main.appendChild(h('div',{class:'flash err',text:'Нет данных для проверки: '+(CHK.note||'данные отчёта по выручке ещё не загружены')+'. Обновите сначала отчёт по выручке, затем этот отчёт.'})); return; }
   const ml=m=>{const [y,mo]=m.split('-');return RU_MS[+mo-1]+' '+y.slice(2);};
-  main.appendChild(h('p',{class:'sub',text:'Выручка школы из отчёта «Накопленная выручка месяца» против роялти, выставленного в реестре (столбец G), за '+months.map(ml).join(', ')+'. В ячейке - разница «база минус выставлено», ₽: плюс - выставлено меньше базы, минус - больше. Чем меньше разница, тем зеленее ячейка; чем больше - тем краснее.'}));
+  main.appendChild(h('p',{class:'sub',text:'Выручка школы из отчёта «Накопленная выручка месяца» против роялти, выставленного в реестре (столбец G), за '+months.map(ml).join(', ')+'. Расчёт = 10% × (выручка - возвраты). В ячейке - разница «расчёт минус выставлено», ₽: плюс - выставлено меньше расчёта, минус - больше. Чем меньше разница, тем зеленее ячейка; чем больше - тем краснее. Максимум (10% выручки до возвратов) - справочно, в итогах и в подсказке ячейки. Справа - доля возвратов от выручки по месяцам.'}));
   // панель управления
   const sel=(key,opts)=>h('select',{onchange:e=>{chkState[key]=isNaN(+e.target.value)?e.target.value:+e.target.value;render();}},...opts.map(([v,l])=>h('option',{value:v,selected:String(chkState[key])===String(v)?'selected':null},l)));
   const redIn=h('input',{type:'number',min:1,step:chkState.color==='rub'?1000:1,value:chkState.color==='rub'?chkState.redRub:chkState.redPct,onchange:e=>{const v=Math.max(1,+e.target.value||1);if(chkState.color==='rub')chkState.redRub=v;else chkState.redPct=v;render();}});
   main.appendChild(h('div',{class:'toolbar'},
     h('label',{},'Период',sel('per',[[3,'3 месяца'],[6,'6 месяцев']])),
-    h('label',{},'База',sel('base',[['max','Максимум: 10% выручки до возвратов'],['calc','Расчёт: 10% × (выручка - возвраты) + 5 000 ₽']])),
     h('label',{},'Цвет по',sel('color',[['rub','сумме разницы, ₽'],['pct','доле от базы, %']])),
     h('label',{},'Красный от',redIn,chkState.color==='rub'?'₽':'%'),
     h('label',{},'Собственная сеть',sel('own',[['hide','не показывать (роялти не начисляется)'],['show','показывать']])),
     h('label',{},'Показать',sel('show',[['all','все школы'],['dev','только с отклонением в красной зоне'],['noacc','выручка есть, роялти не выставлено'],['norev','роялти есть, выручки нет']]))));
   // строки с учётом глобальных фильтров
   const ownN=CHK.rows.filter(r=>r.own).length;
-  let rows=CHK.rows.filter(r=>(chkState.own==='show'||!r.own)&&(state.reg==='all'||r.reg===state.reg)&&(state.dir==='all'||r.d===state.dir)&&(state.sst==='all'||r.st===state.sst))
+  let rows=CHK.rows.filter(r=>(chkState.own==='show'||!r.own)&&(state.reg==='all'||r.reg===state.reg)&&(state.dir==='all'||r.d===state.dir)&&(state.sst==='all'||r.st===state.sst)&&ageOk(r.si))
     .map(r=>{const cells=months.map(m=>chkCell(r.v[m]||[null,null,null]));
       const sum=k=>cells.reduce((t,c)=>t+(c[k]||0),0);
       const diffs=cells.filter(c=>c.diff!=null);
-      return {r,cells,diff:diffs.length?diffs.reduce((t,c)=>t+c.diff,0):null,rev:sum('rev'),ref:sum('ref'),acc:sum('acc'),base:sum(chkState.base==='max'?'max':'calc'),
+      return {r,cells,diff:diffs.length?diffs.reduce((t,c)=>t+c.diff,0):null,rev:sum('rev'),ref:sum('ref'),acc:sum('acc'),base:sum('calc'),max:sum('max'),
         noacc:cells.filter(c=>c.kind==='noacc').length,norev:cells.filter(c=>c.kind==='norev').length};});
   rows=rows.filter(x=>x.cells.some(c=>c.kind!=='none'));
   const red=c=>c.diff!=null&&(chkState.color==='rub'?Math.abs(c.diff)>=chkState.redRub:(c.pct!=null&&Math.abs(c.pct)*100>=chkState.redPct||c.kind==='noacc'));
@@ -453,9 +460,11 @@ function renderCheck(main,C){
   const T=k=>sumBy(all,x=>x[k]||0);
   const noaccCells=all.flatMap(x=>x.cells.filter(c=>c.kind==='noacc'));
   main.appendChild(h('div',{class:'summary'},
-    h('div',{class:'pill'},h('b',{text:mln(T('base'))}),chkState.base==='max'?'максимум (10% выручки)':'расчёт по формуле'),
+    h('div',{class:'pill'},h('b',{text:mln(T('base'))}),'расчёт: 10% × (выручка - возвраты)'),
     h('div',{class:'pill'},h('b',{text:mln(T('acc'))}),'выставлено роялти'),
-    h('div',{class:'pill'},h('b',{class:T('base')-T('acc')>0?'neg':'',text:(T('base')-T('acc')>0?'+':'')+mln(T('base')-T('acc'))}),'разница (база - выставлено)'),
+    h('div',{class:'pill'},h('b',{class:T('base')-T('acc')>0?'neg':'',text:(T('base')-T('acc')>0?'+':'')+mln(T('base')-T('acc'))}),'разница (расчёт - выставлено)'),
+    h('div',{class:'pill'},h('b',{class:'muted',text:mln(T('max'))}),'справочно: максимум, 10% выручки'),
+    h('div',{class:'pill'},h('b',{text:pc(T('rev')?T('ref')/T('rev'):null,1)}),'возвраты от выручки'),
     h('div',{class:'pill'},h('b',{class:'neg',text:String(noaccCells.length)}),'школо-месяцев: выручка есть, роялти нет · выручка '+mln(sumBy(noaccCells,c=>c.rev))),
     h('div',{class:'pill'},h('b',{text:String(all.reduce((t,x)=>t+x.cells.filter(red).length,0))}),'ячеек в красной зоне')));
   // легенда
@@ -475,19 +484,24 @@ function renderCheck(main,C){
       const td=h('td',{style:'background:'+heat(t)+';color:var(--ink);font-weight:'+(t>=1?650:400)},c.kind==='noacc'?h('span',{},fmtD(c.diff),h('div',{style:'font-size:10.5px',text:'не начислено'})):fmtD(c.diff));
       td.addEventListener('pointermove',ev=>showTip(ev,x.r.c+' · '+x.r.d+' · '+ml(m),[
         {label:'Выручка',value:rub(c.rev)+' ₽'},{label:'Возвраты',value:c.ref!=null?rub(c.ref)+' ₽':'нет данных'},
-        {label:'Максимум (10% выручки)',value:rub(c.max)+' ₽'},{label:'Расчёт 10%×(выр.-возвр.)+5 000',value:rub(c.calc)+' ₽'},
+        {label:'Доля возвратов',value:c.refShare!=null?pc(c.refShare,1):'н/д'},
+        {label:'Расчёт 10% × (выр. - возвр.)',value:rub(c.calc)+' ₽'},
         {label:'Выставлено в реестре',value:c.acc!=null?rub(c.acc)+' ₽':'нет начисления'},
-        {label:'Разница с максимумом',value:fmtD(c.max-(c.acc||0))+' ₽'},{label:'Разница с расчётом',value:fmtD(c.calc-(c.acc||0))+' ₽'},
+        {label:'Разница с расчётом',value:fmtD(c.calc-(c.acc||0))+' ₽'},
+        {label:'Справочно: максимум 10% выручки',value:rub(c.max)+' ₽'},{label:'Справочно: разница с максимумом',value:fmtD(c.max-(c.acc||0))+' ₽'},
         {label:'Выставлено / выручка',value:c.rev>0&&c.acc!=null?pc(c.acc/c.rev,1):'н/д'}]));
       td.addEventListener('pointerleave',hideTip); return td;}})),
     {key:'diff',label:'Итого разница, ₽',gs:true,sort:x=>x.diff==null?null:Math.abs(x.diff),cell:x=>h('td',{style:'font-weight:650'},x.diff!=null?fmtD(x.diff):'')},
     {key:'rev',label:'Выручка, ₽',cell:x=>rub(x.rev)},
     {key:'acc',label:'Выставлено, ₽',cell:x=>rub(x.acc)},
     {key:'rate',label:'Выставлено / выручка',sort:x=>x.rev>0?x.acc/x.rev:null,cell:x=>x.rev>0?pc(x.acc/x.rev,1):''},
-    {key:'st',label:'Школа',cls:'l',sort:x=>x.r.st,cell:x=>h('td',{},stChip(x.r.st))}];
+    {key:'max',label:'Максимум, ₽',title:'Справочно: 10% выручки до вычета возвратов за период',cell:x=>h('td',{class:'muted'},x.rev>0?rub(x.max):'')},
+    ...months.map((m,k)=>({key:'r'+k,label:ml(m),group:'Возвраты / выручка',gs:k===0,sort:x=>x.cells[k].refShare,cell:x=>{const v=x.cells[k].refShare;return h('td',{class:v==null?'muted':'',style:v>=0.05?'font-weight:650':null},v!=null?pc(v,1):'')}})),
+    {key:'refs',label:'За период',sort:x=>x.rev>0?x.ref/x.rev:null,cell:x=>h('td',{style:'font-weight:650'},x.rev>0?pc(x.ref/x.rev,1):'')},
+    {key:'st',label:'Школа',cls:'l',gs:true,sort:x=>x.r.st,cell:x=>h('td',{},stChip(x.r.st))}];
   dataTable(main,'check',cols,rows,{defaultSort:{key:'diff',dir:-1}});
   if(chkState.own!=='show'&&ownN) main.appendChild(h('p',{class:'note',text:'Не показаны '+ownN+' школ Собственной сети (партнёр «УК» в отчёте по выручке): роялти по ним не начисляется. Если в реестре у такой школы указан прежний партнёр, значит, школа перешла в УК.'}));
-  main.appendChild(h('p',{class:'note',text:'Как читать. База «Максимум» - 10% выручки до вычета возвратов, как в правиле начисления. Фактическое роялти обычно отличается от неё на возвраты и на фиксированные 5 000 ₽, поэтому почти во всех строках есть разница. Чтобы увидеть именно ошибки начисления, переключите базу на «Расчёт»: там зелёные ячейки - начисления, совпавшие с формулой. Формула 10% × (выручка - возвраты) + 5 000 ₽ - гипотеза по данным: она точно (±50 ₽) объясняет около 80% начислений по России за май-октябрь 2026. Её нужно подтвердить. Для зарубежных школ возможны расхождения из-за курсов валют.'}));
+  main.appendChild(h('p',{class:'note',text:'Как читать. Расчёт - 10% × (выручка - возвраты). Зелёная ячейка - выставлено столько же, сколько по расчёту; минус - выставлено больше расчёта, плюс - меньше. Минимальное роялти у малых школ и фиксированные доплаты в расчёт не входят и видны как минус. Для зарубежных школ возможны расхождения из-за курсов валют.'}));
 }
 
 /* ---------- Методика ---------- */
@@ -513,10 +527,12 @@ function renderMethod(main,C){
     'Повторный - 2 и более нарушения за всю историю; разовый - одно; новый проблемный - первое нарушение пришлось на последние 3 месяца.',
     'Первичное нарушение - первое нарушение школы с начала данных (январь 2023); повторные - все следующие.',
     'Годовая матрица: зелёный - нет нарушений за год, жёлтый - 1, красный - 2-3, коричневый - 4 и более.',
-    'Долг в месяцах роялти - долг / среднее начисление за последние 6 месяцев: показывает, сколько месяцев работы школы нужно, чтобы погасить долг.']);
+    'Долг в месяцах роялти - долг / среднее начисление за последние 6 месяцев: показывает, сколько месяцев работы школы нужно, чтобы погасить долг.',
+    'Фильтр «Самый старый долг» (вверху, действует на все вкладки) - сколько месяцев прошло со срока оплаты самого старого неоплаченного начисления школы, в тех же интервалах, что и структура долга на «Обзоре». Школа попадает в один интервал целиком, со всем своим долгом.']);
   box.appendChild(h('h2',{text:'Проверка начислений'}));
   list(['Выручка и возвраты (столбец «Сумма возвратов») - из отчёта по выручке по каждой школе за месяц. Школа реестра сопоставляется со школой отчёта по городу, направлению и номеру школы («Москва 2» = «Москва-…-2»); регистр, пробелы и ё/е не важны.',
-    'Максимум = 10% выручки до вычета возвратов. Расчёт = 10% × (выручка - возвраты) + 5 000 ₽ (гипотеза, требует подтверждения). Разница = база - выставленное роялти (столбец G реестра).',
+    'Расчёт (основа проверки) = 10% × (выручка - возвраты). Разница = расчёт - выставленное роялти (столбец G реестра). Максимум = 10% выручки до вычета возвратов - справочно.',
+    'Доля возвратов = возвраты / выручка за месяц.',
     'Период - последние месяцы, за которые роялти уже выставлено и есть выручка.']);
   box.appendChild(h('h2',{text:'Ограничения данных'}));
   list(['В реестре один месяц оплаты на начисление: если долг гасился частями, вся сумма относится к месяцу в столбце J.',
@@ -540,6 +556,7 @@ function init(){
   fd.addEventListener('change',e=>{state.dir=e.target.value;render();});
   document.getElementById('f-reg').addEventListener('change',e=>{state.reg=e.target.value;render();});
   document.getElementById('f-sst').addEventListener('change',e=>{state.sst=e.target.value;render();});
+  document.getElementById('f-age').addEventListener('change',e=>{state.age=e.target.value;render();});
   document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.v;store.set('tab',state.tab);render();scrollTo(0,0);}));
   document.getElementById('theme').addEventListener('click',()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('ns_dash_theme',JSON.stringify(r.dataset.theme));}catch(e){}render();});
   try{const th=JSON.parse(localStorage.getItem('ns_dash_theme'));if(th)document.documentElement.dataset.theme=th;}catch(e){}
