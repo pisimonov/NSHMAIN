@@ -119,3 +119,27 @@ function parse_month_links(string $text, array &$errors): array {
     ksort($out);
     return $out;
 }
+
+/**
+ * Находит лист таблицы по названию из настроек, если оно записано неточно:
+ * регистр, ё/е, лишние пробелы, обрезанный или дописанный конец названия.
+ * Возвращает настоящее название или null, если подходящего листа нет или их несколько.
+ */
+function match_sheet_title(string $wanted, array $titles): ?string {
+    $n = function (string $t): string { return trim(preg_replace('/\s+/u', ' ', str_replace('ё', 'е', mb_strtolower($t)))); };
+    if (in_array($wanted, $titles, true)) return $wanted;
+    $w = $n($wanted);
+    $same = array_values(array_filter($titles, function ($t) use ($n, $w) { return $n($t) === $w; }));
+    if (count($same) === 1) return $same[0];
+    // общее начало названия: берём лист с самым длинным совпадением, если оно заметно длиннее, чем у остальных
+    $best = null; $bestLen = 0; $second = 0;
+    foreach ($titles as $t) {
+        $a = $n($t); $len = 0; $max = min(mb_strlen($a), mb_strlen($w));
+        while ($len < $max && mb_substr($a, $len, 1) === mb_substr($w, $len, 1)) $len++;
+        if ($len > $bestLen) { $second = $bestLen; $bestLen = $len; $best = $t; } elseif ($len > $second) $second = $len;
+    }
+    $full = $best !== null && ($bestLen === mb_strlen($w) || $bestLen === mb_strlen($n($best)));   // одно название - начало другого
+    if ($best !== null && $bestLen >= 12 && ($full || $bestLen >= 25) && $bestLen - $second >= 4) return $best;
+    return null;
+}
+
