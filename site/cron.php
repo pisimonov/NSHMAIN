@@ -1,13 +1,11 @@
 <?php
 /*
- * Ежедневное обновление данных.
- *   Из планировщика хостинга (cron):   php /полный/путь/к/сайту/cron.php
- *   Или по ссылке:                     https://ваш-домен/cron.php?key=<cron_key из config.php>
+ * Обновление данных всех отчётов (или одного).
+ *   Планировщик хостинга (cron):   php /полный/путь/к/сайту/cron.php [id-отчёта]
+ *   По ссылке:                     https://ваш-домен/cron.php?key=<cron_key>[&report=id]
  */
 define('APP_ROOT', __DIR__);
 require __DIR__ . '/lib/bootstrap.php';
-require __DIR__ . '/lib/sources.php';
-require __DIR__ . '/lib/builder.php';
 
 if (PHP_SAPI !== 'cli') {
     header('Content-Type: text/plain; charset=utf-8');
@@ -18,12 +16,18 @@ if (PHP_SAPI !== 'cli') {
         exit("Доступ запрещён.\n");
     }
     ignore_user_abort(true);
+    $only = (string)($_GET['report'] ?? '');
+} else {
+    $only = (string)($argv[1] ?? '');
 }
-$st = run_update(PHP_SAPI === 'cli' ? 'cron' : 'cron по ссылке');
-if ($st['ok']) {
-    echo 'OK ' . $st['at'] . ' за ' . $st['duration'] . " с; срез: {$st['asOf']}; школ: {$st['schools']}\n";
-    foreach ($st['warnings'] as $w) echo '! ' . $w . "\n";
-    exit(0);
+$trigger = PHP_SAPI === 'cli' ? 'cron' : 'cron по ссылке';
+if ($only !== '' && !report($only)) { echo "Неизвестный отчёт: {$only}. Есть: " . implode(', ', array_keys(reports())) . "\n"; exit(2); }
+$res = $only !== '' ? [$only => run_report_update($only, $trigger)] : run_all_updates($trigger);
+$fail = 0;
+foreach ($res as $id => $st) {
+    if ($st['ok']) {
+        echo "OK  {$id}: {$st['at']} за {$st['duration']} с\n";
+        foreach ($st['warnings'] as $w) echo "  ! {$w}\n";
+    } else { $fail++; echo "ERR {$id}: {$st['error']}\n"; }
 }
-echo 'ОШИБКА: ' . $st['error'] . "\n";
-exit(1);
+exit($fail ? 1 : 0);

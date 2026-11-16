@@ -36,3 +36,17 @@
 .ok-t{color:var(--good)} .err-t{color:var(--bad)}
 .empty{max-width:640px;margin:60px auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px}
 @media (max-width:800px){.admin .row,.admin .row3{grid-template-columns:1fr}.kv{grid-template-columns:1fr}}
+/* Глобальное меню отчётов */
+.gnav{position:relative}
+.gnav-btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);border-radius:8px;padding:7px 12px;font:inherit;font-weight:600;cursor:pointer}
+.gnav-btn:hover,.gnav-btn[aria-expanded="true"]{background:var(--surface-2)}
+.gnav-car{color:var(--ink-2);font-size:12px}
+.gnav-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:60;min-width:340px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.16);padding:6px}
+.gnav-group{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:8px 10px 4px}
+.gnav-menu a{display:block;padding:8px 10px;border-radius:7px;color:var(--ink);text-decoration:none}
+.gnav-menu a span{display:block;font-size:12px;color:var(--ink-2);margin-top:1px}
+.gnav-menu a:hover,.gnav-menu a:focus{background:var(--surface-2);outline:none}
+.gnav-menu a[aria-current="page"]{background:var(--hl)}
+.gnav-menu a[aria-current="page"] b::after{content:" ✓";color:var(--accent)}
+.gnav-menu .gnav-sep{border-top:1px solid var(--border);margin:6px 4px}
+.ver{font-size:11px;color:var(--muted)}

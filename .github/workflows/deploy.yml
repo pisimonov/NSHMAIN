@@ -1,0 +1,81 @@
+# Выкладка сайта отчётов на хостинг.
+# Срабатывает при изменении ветки main (после слияния изменений) и вручную: Actions -> «Выкладка сайта» -> Run workflow.
+# Нужные секреты репозитория (Settings -> Secrets and variables -> Actions):
+#   FTP_SERVER    - адрес FTP-сервера хостинга, например ftp.example.ru
+#   FTP_USERNAME  - логин FTP
+#   FTP_PASSWORD  - пароль FTP
+#   FTP_DIR       - папка сайта на сервере, со слешем на конце, например public_html/ или report.example.ru/public_html/
+# Необязательные переменные (там же, вкладка Variables):
+#   FTP_PROTOCOL  - ftps (по умолчанию) или ftp, если хостинг не поддерживает шифрование
+#   SITE_URL      - адрес сайта, например https://report.example.ru - для проверки после выкладки
+name: Выкладка сайта
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'tests/**', '.github/workflows/deploy.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Тесты (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['7.4', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, openssl, mbstring, json
+          coverage: none
+      - name: Проверка синтаксиса
+        run: find site tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Автотесты
+        run: php tests/run.php
+
+  deploy:
+    name: Выкладка по FTP
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версия
+        run: echo "$(date -u +%Y-%m-%d) ${GITHUB_SHA::7}" > site/VERSION && cat site/VERSION
+      - name: Загрузка изменённых файлов
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          local-dir: ./site/
+          server-dir: ${{ secrets.FTP_DIR }}
+          # Никогда не трогаем ключи и данные на сервере
+          exclude: |
+            **/.git*
+            **/.git*/**
+            config.php
+            data/**
+      - name: Проверка сайта после выкладки
+        if: vars.SITE_URL != ''
+        run: |
+          expected="$(cat site/VERSION)"
+          for i in 1 2 3 4 5; do
+            got="$(curl -fsS "${{ vars.SITE_URL }}/health.php" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')" || true
+            echo "На сайте: '${got}', ожидается: '${expected}'"
+            [ "$got" = "$expected" ] && exit 0
+            sleep 10
+          done
+          echo "::error::Сайт не ответил новой версией - проверьте журнал выкладки и сайт"
+          exit 1

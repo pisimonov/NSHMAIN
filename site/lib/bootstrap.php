@@ -7,7 +7,7 @@ if (PHP_VERSION_ID < 70400) {
     exit('Нужен PHP 7.4 или новее. Сейчас: ' . PHP_VERSION);
 }
 
-$cfgFile = APP_ROOT . '/config.php';
+$cfgFile = getenv('NS_CONFIG') ?: APP_ROOT . '/config.php';   // NS_CONFIG - только для автотестов
 if (!is_file($cfgFile)) {
     http_response_code(500);
     exit('Не найден config.php. Скопируйте config.sample.php в config.php и заполните ключи.');
@@ -29,6 +29,8 @@ if (!is_file(DATA_DIR . '/.htaccess')) {
 }
 
 require_once __DIR__ . '/util.php';
+require_once __DIR__ . '/sources.php';
+require_once __DIR__ . '/reports.php';
 
 /* ---------- журнал ---------- */
 function app_log(string $msg): void {
@@ -46,21 +48,9 @@ set_exception_handler(function ($e) {
 
 /* ---------- настройки (data/settings.json) ---------- */
 function default_settings(): array {
-    return [
-        'auth' => null,
-        'current_url' => 'https://docs.google.com/spreadsheets/d/1RSr3AWZGEbn0PUHHdsoA87t5UIq75sTYsrqbP2gFNiQ/edit',
-        'archive_overrides' => [
-            '2025-12' => 'https://docs.google.com/spreadsheets/d/1WnyB2qqJlgqPQHqTEBOSnVZ7AJz206zD0Ps-FqDloeU/edit',
-        ],
-        'read_archive_sheet' => true,
-        'data_sheet' => 'raw_data_income',
-        'archive_sheet' => 'Предыдущие месяца',
-        'own_partner' => 'УК',
-        'flag_threshold' => 20,
-        'min_base' => 100000,
-        'silent_days' => 5,
-        'history_months' => 12,
-    ];
+    $d = ['auth' => null];
+    foreach (reports() as $m) $d = array_replace($d, $m['defaults'] ?? []);   // настройки по умолчанию каждого отчёта
+    return $d;
 }
 function settings(): array {
     static $cache = null;

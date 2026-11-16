@@ -697,7 +697,7 @@ function render(){
 function init(){
   const dirs=[...new Set(S.map(x=>x.d))].filter(Boolean).sort();
   const fd=document.getElementById('f-dir'); dirs.forEach(d=>fd.appendChild(h('option',{value:d},d)));
-  const fc=document.getElementById('f-cut'); for(let d=AS_OF; d>=1; d--) fc.appendChild(h('option',{value:d}, dmy(CUR,d)+(d===AS_OF?' (вчера)':'')));
+  const fc=document.getElementById('f-cut'); for(let d=AS_OF; d>=1; d--) fc.appendChild(h('option',{value:d}, dmy(CUR,d)+(d===AS_OF?(M.asOfShifted?' (последний в данных)':' (вчера)'):'')));
   fc.addEventListener('change',e=>{state.cut=+e.target.value;render();});
   fd.addEventListener('change',e=>{state.dir=e.target.value;render();});
   document.getElementById('f-country').addEventListener('change',e=>{state.country=e.target.value;render();});

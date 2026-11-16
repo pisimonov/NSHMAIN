@@ -102,3 +102,20 @@ function norm_city(string $city, string $country): string {
     if ($country !== '' && mb_substr($c, -mb_strlen($suffix)) === $suffix) $c = trim(mb_substr($c, 0, mb_strlen($c) - mb_strlen($suffix)));
     return $c;
 }
+
+/** Строки «2025-12 https://...» или «Декабрь 2025 https://...» -> ['2025-12' => ссылка]. */
+function parse_month_links(string $text, array &$errors): array {
+    $out = [];
+    foreach (preg_split('/\R/u', $text) as $i => $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') continue;
+        if (!preg_match('~^(.*?)\s*[|;,\t ]\s*(https?://\S+|[a-zA-Z0-9_-]{20,}|csv:\S+)\s*$~u', $line, $m)) { $errors[] = 'Строка ' . ($i + 1) . ': не найдена ссылка.'; continue; }
+        $label = trim($m[1], " |;,\t");
+        $ym = preg_match('/^(\d{4})-(\d{2})$/', $label) ? $label : parse_ru_month($label);
+        if (!$ym) { $errors[] = 'Строка ' . ($i + 1) . ': не распознан месяц «' . $label . '» (пишите 2025-12 или «Декабрь 2025»).'; continue; }
+        if (!spreadsheet_id($m[2])) { $errors[] = 'Строка ' . ($i + 1) . ': ссылка не похожа на Google-таблицу.'; continue; }
+        $out[$ym] = $m[2];
+    }
+    ksort($out);
+    return $out;
+}
