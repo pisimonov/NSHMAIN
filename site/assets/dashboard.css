@@ -86,7 +86,7 @@ h3{font-size:15px;margin:0 0 2px}
 .tblwrap{overflow:auto;max-height:72vh;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
 table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
 th,td{padding:5px 6px;border-bottom:1px solid var(--grid);white-space:nowrap}
-thead th{position:sticky;top:0;background:var(--surface-2);z-index:2;font-weight:600;color:var(--ink-2);text-align:right;vertical-align:bottom}
+thead th{position:sticky;top:0;background:var(--surface-2);z-index:3;font-weight:600;color:var(--ink-2);text-align:right;vertical-align:bottom}
 thead tr.g th{top:0;text-align:center;border-bottom:1px solid var(--border-strong);color:var(--ink)}
 thead tr.g + tr th{top:27px}
 th.l,td.l{text-align:left}
@@ -94,8 +94,8 @@ td{text-align:right;font-variant-numeric:tabular-nums}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--ink)}
 th .arr{color:var(--accent)}
-td.first,th.first{position:sticky;left:0;background:var(--surface);z-index:1;text-align:left}
-thead th.first{z-index:3;background:var(--surface-2)}
+td.first,th.first{position:sticky;left:0;background:var(--surface);z-index:2;text-align:left}
+thead th.first{z-index:4;background:var(--surface-2)}
 tr.cut td{background:var(--cut)}
 tr.cut td.first{background:var(--cut)}
 tr.fut td{color:var(--muted)}
@@ -104,6 +104,10 @@ tr.tot td{font-weight:650;border-top:2px solid var(--border-strong);background:v
 tr.tot td.first{background:var(--surface-2)}
 td.gs,th.gs{border-left:1px solid var(--border-strong)}
 tbody tr:hover td{background:var(--hl)}
+/* Закреплённая первая ячейка: подсветка поверх непрозрачного фона, иначе при горизонтальном скролле сквозь неё видны цифры строки */
+tbody tr:hover td.first{background:linear-gradient(var(--hl),var(--hl)),var(--surface)}
+tbody tr.cut:hover td.first{background:linear-gradient(var(--hl),var(--hl)),var(--cut)}
+tbody tr.tot:hover td.first{background:linear-gradient(var(--hl),var(--hl)),var(--surface-2)}
 .chip{display:inline-flex;gap:3px;align-items:center;border-radius:999px;padding:1px 6px;font-size:11px;font-weight:600}
 .chip.up{background:var(--good-bg);color:var(--good)}
 .chip.down{background:var(--bad-bg);color:var(--bad)}
