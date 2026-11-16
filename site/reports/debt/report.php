@@ -53,17 +53,17 @@ function debt_parse(array $rows, ?array $rev, int $curMi, int $tol, array &$warn
         foreach ($rev['schools'] as $sc) {
             $c = trim(preg_replace('/,.*$/u', '', $sc['c']));   // «Пушкин, Санкт-Петербург» -> «Пушкин»
             if ($sc['co'] !== 'Россия' || !isset($country[$c])) $country[$c] = $sc['co'];
-            $nm = str_replace(' ', '', preg_replace('/,[^-]*-/u', '-', $sc['n'], 1));
-            $status[$c . '|' . str_replace('Барабны', 'Барабаны', $sc['d'])][$nm] = (bool)$sc['cl'];
+            $nm = debt_nm(preg_replace('/,[^-]*-/u', '-', $sc['n'], 1));
+            $status[debt_key($c, $sc['d'])][$nm] = (bool)$sc['cl'];
         }
     } else {
         $warn[] = 'Нет данных отчёта по выручке - статус школы «закрыта» не определён, страны взяты из встроенного списка.';
     }
     $schoolStatus = function (string $city, string $d) use ($status) {
         if (preg_match('/^(.*?)\s+(\d+)$/u', $city, $m)) { $base = $m[1]; $n = (int)$m[2]; } else { $base = $city; $n = 1; }
-        $sch = $status[$base . '|' . $d] ?? null;
+        $sch = $status[debt_key($base, $d)] ?? null;
         if (!$sch) return 'нет данных';
-        $name = str_replace(' ', '', $base . '-' . str_replace('Барабаны', 'Барабны', $d) . '-' . $n);
+        $name = debt_nm($base . '-' . str_replace('Барабаны', 'Барабны', $d) . '-' . $n);
         if (isset($sch[$name])) return $sch[$name] ? 'закрыта' : 'работает';
         return count(array_filter($sch)) === count($sch) ? 'закрыта' : 'работает';
     };
@@ -109,6 +109,101 @@ function debt_parse(array $rows, ?array $rev, int $curMi, int $tol, array &$warn
             'other' => array_filter(array_map('round', $other), function ($v) { return abs($v) > 0.5; }), 'overdue' => $overdue];
 }
 
+/** Название школы для сравнения: без пробелов, регистра и разницы ё/е. */
+function debt_nm(string $s): string { return str_replace(['ё', ' '], ['е', ''], mb_strtolower($s, 'UTF-8')); }
+
+/** Ключ сопоставления школы: «москва 2|барабаны» (регистр, ё/е и пробелы не важны). */
+function debt_key(string $city, string $dir): string {
+    $f = function ($x) { return str_replace('ё', 'е', mb_strtolower(norm_space($x), 'UTF-8')); };
+    return $f($city) . '|' . $f(str_replace('Барабны', 'Барабаны', $dir));
+}
+
+/**
+ * Проверка начисления роялти: выручка и возвраты школы из отчёта по выручке против начисленного роялти в реестре.
+ * Возвращает последние 6 месяцев (до последнего месяца с начислениями) и строки по школам.
+ */
+function debt_revcheck(?array $rev, array $schools, array $rows, int $curMi, array &$warn): array {
+    if (!$rev || empty($rev['monthly'])) return ['months' => [], 'rows' => [], 'note' => 'нет данных отчёта по выручке'];
+    $ymOf = function (int $mi) { return sprintf('%04d-%02d', intdiv($mi, 12), $mi % 12 + 1); };
+    $last = -1;
+    foreach ($rows as $r) if ($r[1] < $curMi && $r[1] > $last && isset($rev['monthly'][$ymOf($r[1])])) $last = $r[1];
+    if ($last < 0) return ['months' => [], 'rows' => [], 'note' => 'нет общих месяцев в реестре и отчёте по выручке'];
+    $months = [];
+    for ($mi = $last - 5; $mi <= $last; $mi++) if (isset($rev['monthly'][$ymOf($mi)])) $months[$mi] = $ymOf($mi);
+    $refunds = (array)($rev['refunds'] ?? []);
+
+    // школы реестра: ключ -> индекс; и по «базовому» городу без номера (для запасного сопоставления)
+    $byKey = []; $byBase = [];
+    foreach ($schools as $si => $sc) {
+        $byKey[debt_key($sc['c'], $sc['d'])] = $si;
+        $byBase[debt_key(preg_replace('/\s+\d+$/u', '', $sc['c']), $sc['d'])][] = $si;
+    }
+    // начисления по школе и месяцу
+    $acc = [];
+    foreach ($rows as $r) if (isset($months[$r[1]])) $acc[$r[0]][$months[$r[1]]] = ($acc[$r[0]][$months[$r[1]]] ?? 0) + $r[2];
+
+    $out = []; $revByBase = [];
+    foreach ($rev['schools'] as $i => $sc) {
+        $city = trim(preg_replace('/,.*$/u', '', $sc['c']));
+        $num = preg_match('/-(\d+)\s*$/u', $sc['n'], $m) ? (int)$m[1] : 1;
+        $revByBase[debt_key($city, $sc['d'])][] = $i;
+        $v = []; $any = false;
+        foreach ($months as $ym) {
+            $x = $rev['monthly'][$ym][$i] ?? null;
+            if ($x !== null) { $v[$ym] = [round($x, 2), isset($refunds[$ym]) ? $refunds[$ym][$i] : null, null]; if ($x > 0) $any = true; }
+        }
+        $out['r' . $i] = ['ri' => $i, 'key' => debt_key($num > 1 ? $city . ' ' . $num : $city, $sc['d']), 'base' => debt_key($city, $sc['d']), 'v' => $v, 'any' => $any];
+    }
+    // сопоставление: точный ключ, затем «город без номера + направление», если с обеих сторон школа одна
+    // проход 1: точное совпадение города (с номером школы) и направления
+    $match = []; $used = [];
+    foreach ($out as $k => $o) {
+        $si = $byKey[$o['key']] ?? null;
+        if ($si !== null && !isset($used[$si])) { $match[$k] = $si; $used[$si] = true; }
+    }
+    // проход 2: если у города и направления в отчёте по выручке одна школа, а у найденной записи реестра нет начислений
+    // за период (или записи нет) - берём запись реестра с тем же городом без номера/с другим номером, у которой начисления есть
+    foreach ($out as $k => $o) {
+        if (count($revByBase[$o['base']] ?? []) !== 1) continue;
+        $cur = $match[$k] ?? null;
+        if ($cur !== null && !empty($acc[$cur])) continue;
+        foreach ($byBase[$o['base']] ?? [] as $x) {
+            if (isset($used[$x]) || empty($acc[$x])) continue;
+            if ($cur !== null) unset($used[$cur]);
+            $match[$k] = $x; $used[$x] = true; break;
+        }
+    }
+    $res = [];
+    foreach ($out as $k => $o) {
+        $si = $match[$k] ?? null;
+        if ($si === null && !$o['any']) continue;            // нет ни начислений, ни выручки
+        $rs = $rev['schools'][$o['ri']];
+        $row = $si !== null
+            ? ['si' => $si, 'c' => $schools[$si]['c'], 'd' => $schools[$si]['d'], 'p' => $schools[$si]['p'], 'reg' => $schools[$si]['reg'], 'st' => $schools[$si]['st']]
+            : ['si' => -1, 'c' => trim(preg_replace('/,.*$/u', '', $rs['c'])) . (preg_match('/-(\d+)\s*$/u', $rs['n'], $m) && (int)$m[1] > 1 ? ' ' . $m[1] : ''),
+               'd' => str_replace('Барабны', 'Барабаны', $rs['d']), 'p' => $rs['p'], 'reg' => $rs['co'] === 'Россия' ? 'ru' : 'foreign', 'st' => $rs['cl'] ? 'закрыта' : 'работает'];
+        $row['rn'] = $rs['n'];
+        $row['own'] = !empty($rs['own']);   // Собственная сеть (партнёр «УК» в отчёте по выручке): роялти не начисляется
+        foreach ($months as $ym) {
+            $x = $o['v'][$ym] ?? [null, null, null];
+            $x[2] = $si !== null && isset($acc[$si][$ym]) ? round($acc[$si][$ym], 2) : null;
+            $row['v'][$ym] = $x;
+        }
+        $res[] = $row;
+    }
+    // начисления без выручки (школы реестра, не найденные в отчёте по выручке)
+    $nf = 0;
+    foreach ($acc as $si => $am) {
+        if (isset($used[$si])) continue;
+        $nf++;
+        $row = ['si' => $si, 'c' => $schools[$si]['c'], 'd' => $schools[$si]['d'], 'p' => $schools[$si]['p'], 'reg' => $schools[$si]['reg'], 'st' => $schools[$si]['st'], 'rn' => '', 'own' => false];
+        foreach ($months as $ym) $row['v'][$ym] = [null, null, isset($am[$ym]) ? round($am[$ym], 2) : null];
+        $res[] = $row;
+    }
+    if ($nf) $warn[] = "Проверка начислений: {$nf} школ реестра не найдены в отчёте по выручке (сравнение по ним невозможно).";
+    return ['months' => array_values($months), 'rows' => $res];
+}
+
 function debt_build(array $s, SheetSource $src, string $dir, array &$warn): array {
     $id = spreadsheet_id((string)$s['debt_url']);
     if (!$id) throw new RuntimeException('Не указана ссылка на реестр задолженности.');
@@ -123,6 +218,7 @@ function debt_build(array $s, SheetSource $src, string $dir, array &$warn): arra
                    'otherTypesDebt' => $p['other'], 'source' => 'лист «' . $s['debt_sheet'] . '»',
                    'revenueAt' => is_array($rev) ? ($rev['meta']['generatedAt'] ?? null) : null],
         'schools' => $p['schools'], 'rows' => $p['rows'], 'comments' => $p['comments'],
+        'check' => debt_revcheck(is_array($rev) ? $rev : null, $p['schools'], $p['rows'], $curMi, $warn),
     ];
     return [
         'payload' => $payload,

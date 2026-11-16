@@ -10,3 +10,4 @@ site/data/*
 deploy/
 prototype/debt_prototype.html
 prototype/debt_data.js
+prototype/*_preview.html

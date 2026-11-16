@@ -15,6 +15,7 @@
   <button data-v="incidents">Первичные и повторные</button>
   <button data-v="matrix">Матрица года</button>
   <button data-v="returns">Возврат старых долгов</button>
+  <button data-v="check">Проверка начислений</button>
   <button data-v="dirs">Направления</button>
   <button data-v="method">Методика</button>
 </nav>

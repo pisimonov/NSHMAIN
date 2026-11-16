@@ -2,7 +2,8 @@
 /* Отчёт «Накопленная выручка месяца»: загрузка месяцев, кэш архивов, агрегирование, настройки. */
 defined('APP_ROOT') || exit;
 
-const REVENUE_COLS = 'A1:M';   // A Страна ... H Выручка (рубли) ... K Школа, L Партнер, M Закрыта
+const REVENUE_COLS = 'A1:AD';  // A Страна ... H Выручка (рубли) ... K Школа, L Партнер, M Закрыта ... «Сумма возвратов» (обычно Z)
+const REVENUE_PACK_VER = 2;    // 2 - в кэше месяца есть возвраты по школам
 
 /** Разбор строк листа raw_data_income. */
 function revenue_process_values(array $rows): array {
@@ -21,6 +22,8 @@ function revenue_process_values(array $rows): array {
         }
         $ix[$name] = $pos;
     }
+    $refIx = array_search('сумма возвратов', $hdr, true);   // нужен для проверки начисления роялти
+    $refunds = [];
     $months = []; $meta = []; $seen = []; $dups = []; $count = []; $bad = 0;
     $n = count($rows);
     for ($r = 1; $r < $n; $r++) {
@@ -34,6 +37,7 @@ function revenue_process_values(array $rows): array {
         $key = $name . '|' . $date;
         if (isset($seen[$key])) $dups[$ym][$name] = true; else $seen[$key] = true;
         $months[$ym][$name][$day] = ($months[$ym][$name][$day] ?? 0) + $rev;
+        if ($refIx !== false) $refunds[$ym][$name] = ($refunds[$ym][$name] ?? 0) + parse_num($row[$refIx] ?? 0);
         $count[$ym] = ($count[$ym] ?? 0) + 1;
         $country = norm_space((string)($row[$ix['страна']] ?? ''));
         $meta[$ym][$name] = [
@@ -47,7 +51,9 @@ function revenue_process_values(array $rows): array {
     if (!$count) throw new RuntimeException('В листе нет строк с датой и школой.');
     arsort($count);
     if ($bad) $warn[] = "Пропущено строк без распознанной даты: {$bad}.";
-    return ['months' => $months, 'meta' => $meta, 'count' => $count, 'dominant' => array_key_first($count), 'dups' => $dups, 'warnings' => $warn];
+    if ($refIx === false) $warn[] = 'Не найден столбец «Сумма возвратов» - проверка начисления роялти по этому месяцу будет без учёта возвратов.';
+    return ['months' => $months, 'meta' => $meta, 'count' => $count, 'dominant' => array_key_first($count), 'dups' => $dups, 'warnings' => $warn,
+            'refunds' => $refunds, 'hasRef' => $refIx !== false];
 }
 
 /** Компактная упаковка одного месяца для кэша. */
@@ -57,9 +63,9 @@ function revenue_pack_month(array $p, string $ym): array {
         $maxDay = max($maxDay, max(array_keys($days)));
         $v = [];
         for ($d = 1; $d <= $nd; $d++) $v[] = round($days[$d] ?? 0, 2);
-        $schools[$name] = $p['meta'][$ym][$name] + ['v' => $v];
+        $schools[$name] = $p['meta'][$ym][$name] + ['v' => $v, 'r' => round($p['refunds'][$ym][$name] ?? 0, 2)];
     }
-    return ['month' => $ym, 'maxDay' => $maxDay, 'rows' => $p['count'][$ym], 'schools' => $schools,
+    return ['month' => $ym, 'maxDay' => $maxDay, 'rows' => $p['count'][$ym], 'schools' => $schools, 'ver' => REVENUE_PACK_VER, 'hasRef' => !empty($p['hasRef']),
             'dups' => array_keys($p['dups'][$ym] ?? []), 'warnings' => $p['warnings']];
 }
 
@@ -109,7 +115,7 @@ function revenue_build(array $s, SheetSource $src, string $dir, array &$warn): a
         if (isset($packs[$ym])) continue;
         $cache = read_json(($dir . '/cache/' . $ym . '.json'));
         $cacheOk = is_array($cache) && isset($cache['pack']);
-        $cacheFresh = $cacheOk && $cache['kind'] === 'archive' && $ym < $recentFrom && in_array($cache['id'], $cands[$ym] ?? [$cache['id']], true);
+        $cacheFresh = $cacheOk && $cache['kind'] === 'archive' && ($cache['pack']['ver'] ?? 1) >= REVENUE_PACK_VER && $ym < $recentFrom && in_array($cache['id'], $cands[$ym] ?? [$cache['id']], true);
         if ($cacheFresh) { $packs[$ym] = $cache['pack']; $sources[$ym] = ['kind' => 'cache', 'id' => $cache['id'], 'rows' => $cache['pack']['rows'], 'at' => $cache['fetchedAt']]; continue; }
         $got = false;
         foreach ($cands[$ym] ?? [] as $id) {
@@ -151,7 +157,7 @@ function revenue_payload(array $packs, string $cur, string $asOf, DateTimeImmuta
     $pm = month_add($cur, -1); $ly = month_add($cur, -12);
     // единый список школ; атрибуты - из самого свежего месяца
     $meta = [];
-    foreach ($packs as $ym => $pk) foreach ($pk['schools'] as $name => $sc) { unset($sc['v']); $meta[$name] = $sc; }
+    foreach ($packs as $ym => $pk) foreach ($pk['schools'] as $name => $sc) { unset($sc['v'], $sc['r']); $meta[$name] = $sc; }
     $names = array_keys($meta);
     sort($names, SORT_STRING);
     $idx = array_flip($names);
@@ -165,11 +171,15 @@ function revenue_payload(array $packs, string $cur, string $asOf, DateTimeImmuta
     }
     if (!$own) $warn[] = 'Не найдено ни одной школы с партнёром «' . $s['own_partner'] . '» - Собственная сеть будет пустой.';
 
-    $monthly = []; $monthDays = []; $dups = [];
+    $monthly = []; $monthDays = []; $dups = []; $refunds = [];
     foreach ($packs as $ym => $pk) {
-        $arr = array_fill(0, count($names), null);
-        foreach ($pk['schools'] as $n => $sc) $arr[$idx[$n]] = round(array_sum($sc['v']), 2);
+        $arr = array_fill(0, count($names), null); $ref = array_fill(0, count($names), null);
+        foreach ($pk['schools'] as $n => $sc) {
+            $arr[$idx[$n]] = round(array_sum($sc['v']), 2);
+            if (!empty($pk['hasRef'])) $ref[$idx[$n]] = round($sc['r'] ?? 0, 2);
+        }
         $monthly[$ym] = $arr; $monthDays[$ym] = $pk['maxDay'];
+        if (!empty($pk['hasRef'])) $refunds[$ym] = $ref;   // возвраты по школам - для проверки начисления роялти
         if (!empty($pk['dups'])) $dups[] = ['m' => $ym, 'schools' => $pk['dups']];
     }
     // дата среза не позже последнего дня, по которому есть данные
@@ -198,6 +208,7 @@ function revenue_payload(array $packs, string $cur, string $asOf, DateTimeImmuta
         'schools' => $schools,
         'daily' => $daily,
         'monthly' => $monthly,
+        'refunds' => (object)$refunds,
         'quality' => ['dups' => $dups, 'warnings' => array_values($warn)],
     ];
 }
