@@ -407,7 +407,7 @@ function renderDirs(main,C){
 
 /* ---------- Проверка начислений роялти ---------- */
 const CHK=DATA.check||{months:[],rows:[]};
-const CHK_RATE=0.10;
+const CHK_RATE=0.10, CHK_FEE=5000;   // расчёт роялти: 10% × (выручка - возвраты) + 5 000 ₽
 const chkState={per:3,color:'rub',redRub:20000,redPct:20,show:'all',own:'hide'};
 function isDarkTheme(){const r=document.documentElement;return r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;}
 /* зелёный -> жёлтый -> красный по доле t от 0 до 1 */
@@ -419,7 +419,7 @@ function heat(t){
 function chkCell(v){ // v = [выручка, возвраты, начислено]
   const [rev,ref,acc]=v; const o={rev,ref,acc};
   o.max = rev!=null ? CHK_RATE*rev : null;                              // справочно: 10% выручки до возвратов
-  o.calc = rev!=null ? (rev>0 ? CHK_RATE*(rev-(ref||0)) : 0) : null;     // основной расчёт: 10% × (выручка - возвраты)
+  o.calc = rev!=null ? (rev>0 ? CHK_RATE*(rev-(ref||0))+CHK_FEE : 0) : null;   // основной расчёт: 10% × (выручка - возвраты) + 5 000 ₽; без выручки - 0
   o.refShare = rev>0 && ref!=null ? ref/rev : null;
   const base = o.calc;
   o.kind = rev==null ? (acc!=null?'norev':'none') : (acc==null ? (rev>0?'noacc':'none') : 'both');
@@ -432,7 +432,7 @@ function renderCheck(main,C){
   main.appendChild(h('h2',{text:'Проверка начисления роялти · '+regionLabel()}));
   if(!months.length){ main.appendChild(h('div',{class:'flash err',text:'Нет данных для проверки: '+(CHK.note||'данные отчёта по выручке ещё не загружены')+'. Обновите сначала отчёт по выручке, затем этот отчёт.'})); return; }
   const ml=m=>{const [y,mo]=m.split('-');return RU_MS[+mo-1]+' '+y.slice(2);};
-  main.appendChild(h('p',{class:'sub',text:'Выручка школы из отчёта «Накопленная выручка месяца» против роялти, выставленного в реестре (столбец G), за '+months.map(ml).join(', ')+'. Расчёт = 10% × (выручка - возвраты). В ячейке - разница «расчёт минус выставлено», ₽: плюс - выставлено меньше расчёта, минус - больше. Чем меньше разница, тем зеленее ячейка; чем больше - тем краснее. Максимум (10% выручки до возвратов) - справочно, в итогах и в подсказке ячейки. Справа - доля возвратов от выручки по месяцам.'}));
+  main.appendChild(h('p',{class:'sub',text:'Выручка школы из отчёта «Накопленная выручка месяца» против роялти, выставленного в реестре (столбец G), за '+months.map(ml).join(', ')+'. Расчёт = 10% × (выручка - возвраты) + 5 000 ₽ (при нулевой выручке - 0). В ячейке - разница «расчёт минус выставлено», ₽: плюс - выставлено меньше расчёта, минус - больше. Чем меньше разница, тем зеленее ячейка; чем больше - тем краснее. Максимум (10% выручки до возвратов) - справочно, в итогах и в подсказке ячейки. Справа - доля возвратов от выручки по месяцам.'}));
   // панель управления
   const sel=(key,opts)=>h('select',{onchange:e=>{chkState[key]=isNaN(+e.target.value)?e.target.value:+e.target.value;render();}},...opts.map(([v,l])=>h('option',{value:v,selected:String(chkState[key])===String(v)?'selected':null},l)));
   const redIn=h('input',{type:'number',min:1,step:chkState.color==='rub'?1000:1,value:chkState.color==='rub'?chkState.redRub:chkState.redPct,onchange:e=>{const v=Math.max(1,+e.target.value||1);if(chkState.color==='rub')chkState.redRub=v;else chkState.redPct=v;render();}});
@@ -460,7 +460,7 @@ function renderCheck(main,C){
   const T=k=>sumBy(all,x=>x[k]||0);
   const noaccCells=all.flatMap(x=>x.cells.filter(c=>c.kind==='noacc'));
   main.appendChild(h('div',{class:'summary'},
-    h('div',{class:'pill'},h('b',{text:mln(T('base'))}),'расчёт: 10% × (выручка - возвраты)'),
+    h('div',{class:'pill'},h('b',{text:mln(T('base'))}),'расчёт: 10% × (выручка - возвраты) + 5 000 ₽'),
     h('div',{class:'pill'},h('b',{text:mln(T('acc'))}),'выставлено роялти'),
     h('div',{class:'pill'},h('b',{class:T('base')-T('acc')>0?'neg':'',text:(T('base')-T('acc')>0?'+':'')+mln(T('base')-T('acc'))}),'разница (расчёт - выставлено)'),
     h('div',{class:'pill'},h('b',{class:'muted',text:mln(T('max'))}),'справочно: максимум, 10% выручки'),
@@ -471,7 +471,7 @@ function renderCheck(main,C){
   const cap=chkState.color==='rub'?rub(chkState.redRub)+' ₽':chkState.redPct+'%';
   const grad=h('span',{style:'display:inline-block;width:160px;height:12px;border-radius:3px;vertical-align:-1px;margin:0 6px;background:linear-gradient(90deg,'+heat(0)+','+heat(.5)+','+heat(1)+')'});
   main.appendChild(h('div',{class:'legend'},h('span',{},'0',grad,cap+' и больше (по модулю)'),h('span',{},'«не начислено» - выручка есть, роялти в реестре нет'),h('span',{},'«нет выручки» - школа не найдена в отчёте по выручке')));
-  const fmtD=v=>(v>0?'+':v<0?'-':'')+nf0.format(Math.abs(Math.round(v)));
+  const fmtD=v=>{const r=Math.round(v);return (r>0?'+':r<0?'-':'')+nf0.format(Math.abs(r));};   // знак по округлённому значению: без «-0»
   const cols=[
     {key:'city',label:'Город',cls:'l',first:true,sort:x=>x.r.c,cell:x=>h('td',{},x.r.c)},
     {key:'dir',label:'Направление',cls:'l',sort:x=>x.r.d,cell:x=>h('td',{},x.r.d)},
@@ -485,7 +485,7 @@ function renderCheck(main,C){
       td.addEventListener('pointermove',ev=>showTip(ev,x.r.c+' · '+x.r.d+' · '+ml(m),[
         {label:'Выручка',value:rub(c.rev)+' ₽'},{label:'Возвраты',value:c.ref!=null?rub(c.ref)+' ₽':'нет данных'},
         {label:'Доля возвратов',value:c.refShare!=null?pc(c.refShare,1):'н/д'},
-        {label:'Расчёт 10% × (выр. - возвр.)',value:rub(c.calc)+' ₽'},
+        {label:'Расчёт 10% × (выр. - возвр.) + 5 000',value:rub(c.calc)+' ₽'},
         {label:'Выставлено в реестре',value:c.acc!=null?rub(c.acc)+' ₽':'нет начисления'},
         {label:'Разница с расчётом',value:fmtD(c.calc-(c.acc||0))+' ₽'},
         {label:'Справочно: максимум 10% выручки',value:rub(c.max)+' ₽'},{label:'Справочно: разница с максимумом',value:fmtD(c.max-(c.acc||0))+' ₽'},
@@ -501,7 +501,7 @@ function renderCheck(main,C){
     {key:'st',label:'Школа',cls:'l',gs:true,sort:x=>x.r.st,cell:x=>h('td',{},stChip(x.r.st))}];
   dataTable(main,'check',cols,rows,{defaultSort:{key:'diff',dir:-1}});
   if(chkState.own!=='show'&&ownN) main.appendChild(h('p',{class:'note',text:'Не показаны '+ownN+' школ Собственной сети (партнёр «УК» в отчёте по выручке): роялти по ним не начисляется. Если в реестре у такой школы указан прежний партнёр, значит, школа перешла в УК.'}));
-  main.appendChild(h('p',{class:'note',text:'Как читать. Расчёт - 10% × (выручка - возвраты). Зелёная ячейка - выставлено столько же, сколько по расчёту; минус - выставлено больше расчёта, плюс - меньше. Минимальное роялти у малых школ и фиксированные доплаты в расчёт не входят и видны как минус. Для зарубежных школ возможны расхождения из-за курсов валют.'}));
+  main.appendChild(h('p',{class:'note',text:'Как читать. Расчёт - 10% × (выручка - возвраты) + 5 000 ₽; при нулевой выручке расчёт 0. Зелёная ячейка - выставлено столько же, сколько по расчёту; минус - выставлено больше расчёта, плюс - меньше. Минимальное роялти у малых школ в расчёт не входит и видно как минус. Для зарубежных школ возможны расхождения из-за курсов валют.'}));
 }
 
 /* ---------- Методика ---------- */
@@ -531,7 +531,7 @@ function renderMethod(main,C){
     'Фильтр «Самый старый долг» (вверху, действует на все вкладки) - сколько месяцев прошло со срока оплаты самого старого неоплаченного начисления школы, в тех же интервалах, что и структура долга на «Обзоре». Школа попадает в один интервал целиком, со всем своим долгом.']);
   box.appendChild(h('h2',{text:'Проверка начислений'}));
   list(['Выручка и возвраты (столбец «Сумма возвратов») - из отчёта по выручке по каждой школе за месяц. Школа реестра сопоставляется со школой отчёта по городу, направлению и номеру школы («Москва 2» = «Москва-…-2»); регистр, пробелы и ё/е не важны.',
-    'Расчёт (основа проверки) = 10% × (выручка - возвраты). Разница = расчёт - выставленное роялти (столбец G реестра). Максимум = 10% выручки до вычета возвратов - справочно.',
+    'Расчёт (основа проверки) = 10% × (выручка - возвраты) + 5 000 ₽; если выручки за месяц нет - 0. Разница = расчёт - выставленное роялти (столбец G реестра). Максимум = 10% выручки до вычета возвратов - справочно.',
     'Доля возвратов = возвраты / выручка за месяц.',
     'Период - последние месяцы, за которые роялти уже выставлено и есть выручка.']);
   box.appendChild(h('h2',{text:'Ограничения данных'}));
