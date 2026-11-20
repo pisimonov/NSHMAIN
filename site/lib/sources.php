@@ -111,7 +111,8 @@ final class CsvDirSource implements SheetSource {
     public function __construct(string $dir) { $this->dir = rtrim($dir, '/'); }
     public function values(string $spreadsheetId, string $sheet, string $cols): array {
         $name = preg_replace('~^csv:~', '', $spreadsheetId);
-        $file = $this->dir . '/' . $name . ($sheet === settings()['archive_sheet'] ? '__archive' : '') . '.csv';
+        $file = $this->dir . '/' . $name . '__' . $sheet . '.csv';          // отдельный лист: <id>__<лист>.csv
+        if (!is_file($file)) $file = $this->dir . '/' . $name . ($sheet === settings()['archive_sheet'] ? '__archive' : '') . '.csv';
         if (!is_file($file)) throw new RuntimeException('CSV не найден: ' . basename($file));
         $out = []; $fh = fopen($file, 'r');
         while (($row = fgetcsv($fh, 0, ',', '"', '\\')) !== false) $out[] = $row;
