@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Экономика школы - прототип</title>
+<style>/*CSS*/
+/* --- экономика школы --- */
+.demo-banner{background:var(--warn-bg);border-radius:8px;padding:8px 12px;font-size:12.5px;color:var(--ink);margin:12px 0}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:var(--surface);color:var(--ink-2);font:inherit;font-size:12.5px;padding:5px 10px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button.on{background:var(--s1-wash);color:var(--ink);font-weight:600}
+.grid-tiles.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:1100px){.grid-tiles.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.val.neg{color:var(--bad)} .val.pos{color:var(--good)}
+.bar-track{position:relative;height:22px;background:var(--surface-2);border-radius:4px}
+.bar-meter{position:absolute;left:0;top:0;bottom:0;border-radius:0 4px 4px 0;background:var(--s1)}
+.bar-plan{position:absolute;top:-4px;bottom:-4px;width:0;border-left:2px dashed var(--ink-2)}
+/* воронка */
+.fn{display:grid;grid-template-columns:200px minmax(260px,1fr) 120px 210px;column-gap:14px;align-items:center}
+.fn .hd{font-size:12px;color:var(--muted);padding-bottom:6px}
+.fn .st{font-size:13.5px;font-weight:600}
+.fn .st small{display:block;font-weight:400;color:var(--muted);font-size:11.5px}
+.fn .v{text-align:right;font-variant-numeric:tabular-nums;font-size:15px;font-weight:650}
+.fn .cmp{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.fn .track{position:relative;height:24px}
+.fn .fill{position:absolute;left:0;top:0;bottom:0;background:var(--s1);border-radius:0 4px 4px 0;min-width:2px}
+.fn .ghost{position:absolute;left:0;top:-3px;bottom:-3px;border:2px dashed var(--ink-2);border-left:0;border-radius:0 5px 5px 0;pointer-events:none}
+.fn .row{display:contents}
+.fn .row>*{padding:7px 0}
+.fn .row:hover>*{background:var(--hl)}
+.fn .cv{grid-column:1 / -1;display:grid;grid-template-columns:200px minmax(260px,1fr) 120px 210px;column-gap:14px;align-items:center;font-size:12.5px;color:var(--ink-2)}
+.fn .cv .arrow{color:var(--muted);padding-left:18px}
+.fn .cv .rate{font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
+.fn .sep{grid-column:1 / -1;border-top:1px solid var(--grid);margin:8px 0 4px}
+.chip .ic{font-size:9px}
+.cmp-tbl td.best{font-weight:650}
+.wf-legend span i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:1100px){.twocol{grid-template-columns:1fr}}
+.method ul{margin:6px 0 12px 18px;padding:0;font-size:13px;line-height:1.55}
+.method h3{margin:14px 0 4px;font-size:14px}
+.q{background:var(--surface-2);border-radius:8px;padding:10px 14px;font-size:13px;margin:8px 0}
+</style>
+<script>try{var t=localStorage.getItem('ns_dash_theme');if(t)document.documentElement.dataset.theme=JSON.parse(t);}catch(e){}</script>
+</head>
+<body>
+<header class="top"><div class="wrap"><div class="brandrow">
+  <div class="brand">НЕ ШКОЛА<small>Прототип · демо-данные</small></div>
+  <div class="gnav" id="gnav"><button class="gnav-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="gnav-menu"><span>Экономика школы</span><span class="gnav-car" aria-hidden="true">▾</span></button>
+    <div class="gnav-menu" id="gnav-menu" role="menu" hidden>
+      <div class="gnav-group">Выручка</div>
+      <a role="menuitem" href="revenue_preview.html"><b>Накопленная выручка месяца</b><span>Продажи по дням, сравнение и прогноз</span></a>
+      <a role="menuitem" href="school_prototype.html" aria-current="page"><b>Экономика школы</b><span>Воронка продаж школы, план и потери</span></a>
+      <div class="gnav-group">Партнёры</div>
+      <a role="menuitem" href="debt_preview.html"><b>Задолженность по роялти</b><span>Долги партнёров перед УК</span></a>
+    </div></div>
+  <div class="asof" id="asof"></div><div class="spacer"></div>
+  <div class="navlinks"><button class="btn" id="theme" type="button">Тема</button></div>
+</div>
+<div class="filters">
+  <label>Школа <select id="f-school"></select></label>
+  <label>Сравнить с <span class="seg" id="f-cmp"><button data-v="prev">Прошлый месяц</button><button data-v="dir">Направление</button><button data-v="ref">Эталон</button></span></label>
+</div>
+</div></header>
+<div class="wrap"><main id="main"></main></div><div id="tip"></div>
+<script>
+"use strict";
+/* =====================================================================
+   ДЕМО-ДАННЫЕ. Структура = то, что сайт будет получать из таблиц:
+   по каждой школе и дню: лиды, постановки, встречи, первые продажи (шт.),
+   новые продажи (₽), старые продажи (₽); план месяца: лиды и выручка;
+   эталон по направлению: конверсии и средний чек.
+   ===================================================================== */
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function binom(r,n,p){let k=0;for(let i=0;i<n;i++)if(r()<p)k++;return k;}
+function pois(r,m){let L=Math.exp(-m),k=0,p=1;do{k++;p*=r();}while(p>L);return k-1;}
+const TODAY='2026-11-20', CUR={y:2026,m:10,n:30}, PREV={y:2026,m:9,n:31};   // m - с нуля: ноябрь и октябрь
+const D=19;                                                              // срез - вчера (как в отчёте по выручке)
+const DOW=[.7,1.15,1.1,1.05,1.1,1,.8];                                   // вс..сб: сезонность лидов по дням недели
+function genMonth(seed,mo,p){
+  const r=rng(seed), o={L:[],B:[],M:[],S:[],NR:[],OR:[]};
+  for(let d=1;d<=mo.n;d++){
+    const w=DOW[new Date(mo.y,mo.m,d).getDay()];
+    const L=pois(r,p.lead*w), B=binom(r,L,p.cr1), M=binom(r,B,p.cr2), S=binom(r,M,p.cr3);
+    let nr=0;for(let i=0;i<S;i++)nr+=Math.round(p.chk*(0.75+r()*0.5)/100)*100;
+    const early=d<=10?1.45:0.75;                                           // продления ученикам - в начале месяца
+    o.L.push(L);o.B.push(B);o.M.push(M);o.S.push(S);o.NR.push(nr);o.OR.push(Math.round(p.old*early*(0.6+r()*0.8)/100)*100);
+  }
+  return o;
+}
+const DIRS={
+  'Гитара':  {ref:{cr1:.62,cr2:.75,cr3:.40,chk:28000}},
+  'Вокал':   {ref:{cr1:.60,cr2:.72,cr3:.38,chk:26000}},
+  'Барабаны':{ref:{cr1:.58,cr2:.74,cr3:.42,chk:30000}},
+};
+const SCHOOLS=[];
+let seed=11;
+Object.keys(DIRS).forEach((dir,di)=>{
+  for(let i=0;i<8;i++){
+    const r=rng(seed+=7), main=i===0;
+    const p={lead:main?[4.9,6.2,3.8][di]:3+r()*5,cr1:.48+r()*.2,cr2:.6+r()*.18,cr3:.28+r()*.16,chk:22000+r()*10000,old:main?[52000,61000,44000][di]:35000+r()*40000};
+    if(main){p.cr1=[.55,.63,.5][di];p.cr2=[.66,.72,.7][di];p.cr3=[.31,.39,.36][di];p.chk=[25500,24000,31000][di];}
+    const pp=Object.assign({},p,{lead:p.lead*(main?1.12:1),cr3:p.cr3*(main?1.08:1)});   // прошлый месяц чуть лучше
+    SCHOOLS.push({id:dir+i,name:main?['Школа А','Школа Б','Школа В'][di]:'Школа '+dir+' '+(i+1),dir,main,
+      cur:genMonth(seed*3+1,CUR,p),prev:genMonth(seed*5+2,PREV,pp),
+      plan:{leads:Math.round(p.lead*30*1.25/5)*5,rev:Math.round((p.lead*30*1.2*p.cr1*p.cr2*p.cr3*p.chk+p.old*30*1.05)/50000)*50000}});
+  }
+});
+
+/* ---------- форматирование ---------- */
+const nf0=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
+const ok=v=>v!=null&&isFinite(v);
+const rub=v=>ok(v)?nf0.format(Math.round(v))+' ₽':'н/д';
+const num=v=>ok(v)?nf0.format(Math.round(v)):'н/д';
+const mln=v=>!ok(v)?'н/д':(Math.abs(v)>=1e6?(v/1e6).toFixed(2).replace('.',',')+' млн ₽':nf0.format(Math.round(v/1000))+' тыс ₽');
+const pc=(v,d=1)=>ok(v)?(v*100).toFixed(d).replace('.',',')+'%':'н/д';
+const sgn=(v,f)=>(v>0?'+':v<0?'−':'')+f(Math.abs(v));
+const pp=v=>ok(v)?sgn(v*100,x=>x.toFixed(1).replace('.',','))+' п.п.':'';
+const RU_MG=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const RU_M=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+
+/* ---------- расчёт ---------- */
+const sum=(a,n)=>{let t=0;for(let i=0;i<Math.min(n,a.length);i++)t+=a[i];return t;};
+function agg(m,n){const L=sum(m.L,n),B=sum(m.B,n),M=sum(m.M,n),S=sum(m.S,n),NR=sum(m.NR,n),OR=sum(m.OR,n);
+  return {L,B,M,S,NR,OR,rev:NR+OR,cr1:L?B/L:null,cr2:B?M/B:null,cr3:M?S/M:null,crT:L?S/L:null,chk:S?NR/S:null,rpl:L?NR/L:null};}
+/** среднее по другим школам направления: объёмы - на одну школу, конверсии - по суммам (взвешенно) */
+function dirAvg(s,n){const peers=SCHOOLS.filter(x=>x.dir===s.dir&&x.id!==s.id);const t={L:0,B:0,M:0,S:0,NR:0,OR:0};
+  peers.forEach(x=>{const a=agg(x.cur,n);for(const k in t)t[k]+=a[k];});const k=peers.length;
+  return Object.assign(agg({L:[t.L/k],B:[t.B/k],M:[t.M/k],S:[t.S/k],NR:[t.NR/k],OR:[t.OR/k]},1),{peers:k});}
+function bases(s){
+  const ref=DIRS[s.dir].ref;
+  return {
+    prev:Object.assign(agg(s.prev,D),{label:'Прошлый месяц',short:'прош. мес.',note:'1-'+D+' '+RU_MG[PREV.m]}),
+    dir: Object.assign(dirAvg(s,D),{label:'Направление',short:'направл.',note:'среднее по '+dirAvg(s,D).peers+' школам «'+s.dir+'», 1-'+D+' '+RU_MG[CUR.m]}),
+    ref: {cr1:ref.cr1,cr2:ref.cr2,cr3:ref.cr3,crT:ref.cr1*ref.cr2*ref.cr3,chk:ref.chk,rpl:ref.cr1*ref.cr2*ref.cr3*ref.chk,label:'Эталон',short:'эталон',note:'идеальные значения направления «'+s.dir+'»',noAbs:true},
+  };
+}
+/** План на сегодня (равномерно по дням) и разложение отклонения выручки по факторам (цепные подстановки). */
+function planGap(s,f,t){
+  const kD=D/CUR.n, Lp=s.plan.leads*kD, Rp=s.plan.rev*kD;
+  const newT=Lp*t.cr1*t.cr2*t.cr3*t.chk, oldT=Math.max(0,Rp-newT);
+  const f1=Lp*t.cr1*t.cr2*t.cr3*(f.chk-t.chk);           // средний чек
+  const f2=Lp*t.cr1*t.cr2*(f.cr3-t.cr3)*f.chk;            // встреча -> продажа
+  const f3=Lp*t.cr1*(f.cr2-t.cr2)*f.cr3*f.chk;            // постановка -> встреча
+  const f4=Lp*(f.cr1-t.cr1)*f.cr2*f.cr3*f.chk;            // лид -> постановка
+  const f5=(f.L-Lp)*f.cr1*f.cr2*f.cr3*f.chk;              // лиды (при текущих конверсиях и чеке)
+  const f6=f.OR-oldT;                                     // продажи текущим ученикам
+  return {Lp,Rp,newT,oldT,factors:[
+    {k:'L',  name:'Лиды',                    v:f5,how:'(лиды факт − лиды план) × текущие конверсии × текущий чек'},
+    {k:'cr1',name:'Лид → постановка',        v:f4,how:'лиды план × (CR факт − CR цель) × текущие следующие конверсии × чек'},
+    {k:'cr2',name:'Постановка → встреча',    v:f3,how:'лиды план × CR1 цель × (CR факт − CR цель) × текущие CR3 и чек'},
+    {k:'cr3',name:'Встреча → продажа',       v:f2,how:'лиды план × CR1, CR2 цель × (CR факт − CR цель) × текущий чек'},
+    {k:'chk',name:'Средний чек',             v:f1,how:'плановые первые продажи × (чек факт − чек цель)'},
+    {k:'old',name:'Продажи текущим ученикам',v:f6,how:'старые продажи факт − (план выручки − новые продажи по цели)'}]};
+}
+
+/* ---------- DOM и тултип ---------- */
+function h(tag,attrs,...kids){const e=document.createElement(tag);if(attrs)for(const k in attrs){const v=attrs[k];if(v==null||v===false)continue;if(k==='class')e.className=v;else if(k==='text')e.textContent=v;else if(k==='style')e.style.cssText=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else e.setAttribute(k,v);}for(const c of kids.flat()){if(c==null||c===false)continue;e.appendChild(typeof c==='string'||typeof c==='number'?document.createTextNode(String(c)):c);}return e;}
+const SVGNS='http://www.w3.org/2000/svg';
+function sv(tag,attrs,parent){const e=document.createElementNS(SVGNS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function txt(p,x,y,str,a){const t=sv('text',Object.assign({x,y},a||{}),p);t.textContent=str;return t;}
+const tip=document.getElementById('tip');
+function showTip(ev,title,rows){tip.textContent='';tip.appendChild(h('div',{class:'t',text:title}));
+  for(const r of rows){tip.appendChild(h('div',{class:'r'},h('span',{class:'k'},r.color?h('span',{class:r.rect?'key-rect':'key-line',style:(r.rect?'background:':'border-color:')+r.color}):null,r.label),h('b',{text:r.value})));}
+  tip.style.display='block';const w=tip.offsetWidth,hh=tip.offsetHeight;let x=ev.clientX+14,y=ev.clientY+14;if(x+w>innerWidth-8)x=ev.clientX-w-14;if(y+hh>innerHeight-8)y=ev.clientY-hh-14;tip.style.left=x+'px';tip.style.top=y+'px';}
+const hideTip=()=>tip.style.display='none';
+const hover=(el,fn)=>{el.addEventListener('pointermove',ev=>{const t=fn();showTip(ev,t.title,t.rows);});el.addEventListener('pointerleave',hideTip);return el;};
+function chip(delta,goodIfUp,fmt){if(!ok(delta)||Math.abs(delta)<1e-9)return h('span',{class:'chip small',text:'='});const good=(delta>0)===goodIfUp;
+  return h('span',{class:'chip '+(good?'up':'down')},h('span',{class:'ic',text:delta>0?'▲':'▼'}),fmt(delta));}
+const tile=(lbl,val,cls,det)=>h('div',{class:'tile'},h('div',{class:'lbl',text:lbl}),h('div',{class:'val'+(cls?' '+cls:''),text:val}),h('div',{class:'det'},...det.map(d=>h('div',{},d))));
+
+/* ---------- состояние ---------- */
+const state={school:SCHOOLS.find(x=>x.main).id,cmp:'ref',target:'ref'};
+
+/* ---------- 1. План и факт ---------- */
+function renderPlan(main,s,f,gap){
+  const kD=D/CUR.n, fcR=f.rev/kD, fcL=f.L/kD;
+  const dR=f.rev-gap.Rp, dL=f.L-gap.Lp;
+  main.appendChild(h('h2',{text:'План и факт на '+D+' '+RU_MG[CUR.m]+' · накопительно'}));
+  main.appendChild(h('p',{class:'sub',text:'План на сегодня = план месяца × '+D+'/'+CUR.n+' дней. Прогноз месяца - по темпу 1-'+D+' числа.'}));
+  main.appendChild(h('div',{class:'grid-tiles four'},
+    tile('Выручка: факт 1-'+D,mln(f.rev),'',['план на сегодня '+mln(gap.Rp),h('span',{},chip(dR,true,v=>mln(v)),' ',pc(gap.Rp?dR/gap.Rp:null,1))]),
+    tile('Лиды: факт 1-'+D,num(f.L),'',['план на сегодня '+num(gap.Lp),h('span',{},chip(dL,true,v=>num(v)),' ',pc(gap.Lp?dL/gap.Lp:null,1))]),
+    tile(dR<0?'Не хватает выручки до плана на сегодня':'Выручка сверх плана на сегодня',mln(Math.abs(dR)),dR<0?'neg':'pos',['разложение по причинам - ниже, в «Где потеряны деньги»']),
+    tile('Прогноз выручки на '+RU_M[CUR.m],mln(fcR),fcR<s.plan.rev?'neg':'pos',['план месяца '+mln(s.plan.rev)+' · '+pc(fcR/s.plan.rev,0),'лиды: прогноз '+num(fcL)+' из '+num(s.plan.leads)])));
+  // накопительные графики: выручка и лиды (две отдельные шкалы - два графика)
+  const grid=h('div',{class:'twocol'});main.appendChild(grid);
+  const cumul=(a,n)=>{const o=[];let t=0;for(let i=0;i<n;i++){t+=a[i];o.push(t);}return o;};
+  const revDaily=s.cur.NR.map((v,i)=>v+s.cur.OR[i]);
+  lineCard(grid,'Выручка накопительно, ₽','новые + старые продажи',cumul(revDaily,D),s.plan.rev,mln);
+  lineCard(grid,'Лиды накопительно','',cumul(s.cur.L,D),s.plan.leads,num);
+}
+function lineCard(host,title,sub,fact,planMonth,fmt){
+  const card=h('div',{class:'card'},h('h3',{text:title}),sub?h('p',{class:'sub',text:sub}):null,
+    h('div',{class:'legend'},h('span',{},h('span',{class:'key-line',style:'border-color:var(--s1)'}),'факт'),h('span',{},h('span',{class:'key-line',style:'border-color:var(--s1);border-top-style:dashed'}),'прогноз по темпу'),h('span',{},h('span',{class:'key-line',style:'border-color:var(--ink-2);border-top-style:dashed'}),'план (равномерно)')));
+  const box=h('div',{class:'chart'});card.appendChild(box);host.appendChild(card);
+  requestAnimationFrame(()=>{
+    const W=Math.max(box.clientWidth,360),H=230,m={l:64,r:70,t:10,b:28},pw=W-m.l-m.r,ph=H-m.t-m.b,N=CUR.n;
+    const fc=fact[D-1]/D*N, top=Math.max(planMonth,fc)*1.08;
+    const X=d=>m.l+(d-1)/(N-1)*pw, Y=v=>m.t+ph-v/top*ph;
+    const svg=sv('svg',{viewBox:`0 0 ${W} ${H}`,height:H,role:'img','aria-label':title},box);
+    const st=Math.pow(10,Math.floor(Math.log10(top/4)));const step=[1,2,2.5,5,10].map(x=>x*st).find(x=>top/x<=5);
+    for(let v=0;v<=top;v+=step){sv('line',{x1:m.l,x2:m.l+pw,y1:Y(v),y2:Y(v),stroke:'var(--grid)'},svg);txt(svg,m.l-8,Y(v)+4,v>=1e6?(v/1e6).toFixed(1).replace('.',',')+' млн':v>=1e3?nf0.format(v/1e3)+' тыс':nf0.format(v),{'text-anchor':'end'});}
+    [1,5,10,15,20,25,N].forEach(d=>txt(svg,X(d),H-8,String(d),{'text-anchor':'middle'}));
+    sv('line',{x1:X(1),y1:Y(planMonth/N),x2:X(N),y2:Y(planMonth),stroke:'var(--ink-2)','stroke-width':2,'stroke-dasharray':'5 4'},svg);
+    sv('path',{d:fact.map((v,i)=>(i?'L':'M')+X(i+1)+','+Y(v)).join(''),fill:'none',stroke:'var(--s1)','stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round'},svg);
+    sv('line',{x1:X(D),y1:Y(fact[D-1]),x2:X(N),y2:Y(fc),stroke:'var(--s1)','stroke-width':2,'stroke-dasharray':'4 4'},svg);
+    sv('circle',{cx:X(D),cy:Y(fact[D-1]),r:4.5,fill:'var(--s1)',stroke:'var(--surface)','stroke-width':2},svg);
+    txt(svg,X(N)+6,Y(planMonth)+4,'план',{});txt(svg,X(N)+6,Y(fc)+(Math.abs(Y(fc)-Y(planMonth))<14?16:4),'прогноз',{});
+    const cross=sv('line',{y1:m.t,y2:m.t+ph,stroke:'var(--axis)',opacity:0},svg);
+    const ov=sv('rect',{x:m.l,y:m.t,width:pw,height:ph,fill:'transparent'},svg);
+    ov.addEventListener('pointermove',ev=>{const r=svg.getBoundingClientRect();const d=Math.max(1,Math.min(N,Math.round((ev.clientX-r.left)*W/r.width-m.l)/pw*(N-1)+1));
+      cross.setAttribute('x1',X(d));cross.setAttribute('x2',X(d));cross.setAttribute('opacity',1);
+      const pl=planMonth/N*d, rows=[{label:'план на этот день',value:fmt(pl),color:'var(--ink-2)'}];
+      if(d<=D)rows.unshift({label:'факт',value:fmt(fact[d-1]),color:'var(--s1)'},{label:'отклонение',value:sgn(fact[d-1]-pl,fmt)+' · '+pc((fact[d-1]-pl)/pl,1)});
+      else rows.unshift({label:'прогноз по темпу',value:fmt(fact[D-1]/D*d),color:'var(--s1)'});
+      showTip(ev,d+' '+RU_MG[CUR.m],rows);});
+    ov.addEventListener('pointerleave',()=>{cross.setAttribute('opacity',0);hideTip();});
+  });
+}
+
+/* ---------- 2. Воронка ---------- */
+const STAGES=[
+  {k:'L',name:'Лиды',sub:'обращения',cr:null},
+  {k:'B',name:'Постановки',sub:'записи на пробное',cr:'cr1',crName:'лид → постановка'},
+  {k:'M',name:'Встречи',sub:'пробные состоялись',cr:'cr2',crName:'постановка → встреча (явка)'},
+  {k:'S',name:'Первые продажи',sub:'оплата после пробного',cr:'cr3',crName:'встреча → продажа'},
+];
+function renderFunnel(main,s,f,B){
+  const c=B[state.cmp];
+  main.appendChild(h('h2',{text:'Воронка продаж · 1-'+D+' '+RU_MG[CUR.m]}));
+  main.appendChild(h('p',{class:'sub',text:'Синий - школа. Пунктирный контур - сколько было бы на этапе при тех же лидах, но с конверсиями базы сравнения ('+c.label.toLowerCase()+': '+c.note+'). Контур длиннее полосы - школа теряет людей на этом шаге.'}));
+  const fn=h('div',{class:'fn'});
+  fn.append(h('div',{class:'hd',text:'Этап'}),h('div',{class:'hd',text:'Школа и база сравнения при тех же лидах'}),h('div',{class:'hd',style:'text-align:right',text:'Школа'}),h('div',{class:'hd',text:c.label+(c.noAbs?'':' (факт)')}));
+  // ожидаемые значения при лидах школы и конверсиях базы
+  const exp={L:f.L};exp.B=f.L*c.cr1;exp.M=exp.B*c.cr2;exp.S=exp.M*c.cr3;
+  const max=Math.max(f.L,exp.L);
+  STAGES.forEach((st,i)=>{
+    if(st.cr){
+      const d=f[st.cr]-c[st.cr];
+      fn.appendChild(h('div',{class:'cv'},h('div',{class:'arrow',text:'↓ '+st.crName}),
+        h('div',{},h('span',{class:'rate',text:pc(f[st.cr])}),' vs ',pc(c[st.cr]),' ',chip(d,true,pp)),h('div'),h('div')));
+    }
+    const fill=h('div',{class:'fill',style:'width:'+(f[st.k]/max*100)+'%'});
+    const ghost=i?h('div',{class:'ghost',style:'width:'+(exp[st.k]/max*100)+'%'}):null;
+    const lost=exp[st.k]-f[st.k];
+    const row=h('div',{class:'row'},h('div',{class:'st'},st.name,h('small',{text:st.sub})),h('div',{class:'track'},fill,ghost),
+      h('div',{class:'v',text:num(f[st.k])}),
+      h('div',{class:'cmp'},c.noAbs?(i?'при ваших лидах ≈ '+num(exp[st.k]):'нет объёмов'):num(c[st.k])+(i?' · при ваших лидах ≈ '+num(exp[st.k]):'')));
+    [...row.children].forEach(el=>hover(el,()=>({title:st.name+' · 1-'+D+' '+RU_MG[CUR.m],rows:[
+      {label:'школа',value:num(f[st.k]),color:'var(--s1)',rect:true},
+      ...(i?[{label:'при ваших лидах с конверсиями «'+c.short+'»',value:num(exp[st.k])},{label:lost>0?'не хватает людей':'сверх базы',value:num(Math.abs(lost))}]:[]),
+      ...(c.noAbs?[]:[{label:c.label+' (факт)',value:num(c[st.k])}])]})));
+    fn.appendChild(row);
+  });
+  fn.appendChild(h('div',{class:'cv'},h('div',{class:'arrow',text:'сквозная: лид → продажа'}),h('div',{},h('span',{class:'rate',text:pc(f.crT)}),' vs ',pc(c.crT),' ',chip(f.crT-c.crT,true,pp)),h('div'),h('div')));
+  // деньги
+  fn.appendChild(h('div',{class:'sep'}));
+  const expNR=exp.S*c.chk;
+  const moneyRows=[
+    {name:'Средний чек',sub:'новые продажи ₽ / первые продажи',v:f.chk,cv:c.chk,fmt:rub,bar:false,good:true},
+    {name:'Новые продажи, ₽',sub:'оплаты после пробного',v:f.NR,cv:c.noAbs?null:c.NR,exp:expNR,fmt:rub,bar:true},
+    {name:'Старые продажи, ₽',sub:'продления текущих учеников',v:f.OR,cv:c.noAbs?null:c.OR,fmt:rub,bar:true},
+  ];
+  const mmax=Math.max(f.NR,f.OR,expNR,c.NR||0,c.OR||0);
+  moneyRows.forEach(r=>{
+    const track=h('div',{class:'track'});
+    if(r.bar){track.appendChild(h('div',{class:'fill',style:'width:'+(r.v/mmax*100)+'%'}));if(r.exp!=null)track.appendChild(h('div',{class:'ghost',style:'width:'+(r.exp/mmax*100)+'%'}));}
+    else track.appendChild(h('div',{style:'font-size:12.5px;color:var(--ink-2);padding-top:3px'},chip(r.v-r.cv,true,v=>rub(v)),' к базе «'+c.short+'»'));
+    const row=h('div',{class:'row'},h('div',{class:'st'},r.name,h('small',{text:r.sub})),track,h('div',{class:'v',text:r.fmt(r.v)}),
+      h('div',{class:'cmp'},r.name==='Средний чек'?rub(r.cv):r.exp!=null?(r.cv!=null?rub(r.cv)+' · ':'')+'при ваших лидах ≈ '+rub(r.exp):r.cv!=null?rub(r.cv):'эталона нет'));
+    fn.appendChild(row);
+  });
+  fn.appendChild(h('div',{class:'cv'},h('div',{class:'arrow',text:'новая выручка на 1 лид'}),h('div',{},h('span',{class:'rate',text:rub(f.rpl)}),' vs ',rub(c.rpl),' ',chip(f.rpl-c.rpl,true,v=>rub(v))),h('div'),h('div')));
+  main.appendChild(h('div',{class:'card'},fn));
+  // все базы рядом
+  const rows=[['Лиды','L',num,true],['Постановки','B',num,true],['Встречи','M',num,true],['Первые продажи','S',num,true],
+    ['CR лид → постановка','cr1',pc],['CR постановка → встреча','cr2',pc],['CR встреча → продажа','cr3',pc],['CR сквозная лид → продажа','crT',pc],
+    ['Средний чек','chk',rub],['Новые продажи','NR',rub,true],['Старые продажи','OR',rub,true],['Новая выручка на 1 лид','rpl',rub]];
+  const tb=h('tbody');
+  rows.forEach(([n,k,fm,abs])=>{const tr=h('tr',{},h('td',{class:'l first',text:n}),h('td',{style:'font-weight:650',text:fm(f[k])}));
+    ['prev','dir','ref'].forEach(b=>{const v=B[b][k];const show=!(abs&&B[b].noAbs)&&ok(v);
+      tr.appendChild(h('td',{},show?fm(v):'-',show&&!abs?h('div',{style:'font-size:11px'},chip(f[k]-v,true,k==='chk'||k==='rpl'?x=>rub(x):pp)):null));});
+    tb.appendChild(tr);});
+  main.appendChild(h('div',{class:'card'},h('h3',{text:'Все базы сравнения рядом'}),h('p',{class:'sub',text:'Прошлый месяц и направление - за те же 1-'+D+' дней месяца. Направление: объёмы - в среднем на одну школу, конверсии - по суммам всех школ (крупные школы весят больше). Эталон задаёт только конверсии и чек.'}),
+    h('div',{class:'tblwrap cmp-tbl',style:'max-height:none'},h('table',{},h('thead',{},h('tr',{},h('th',{class:'l first',text:'Показатель'}),h('th',{text:'Школа'}),h('th',{text:'Прошлый месяц'}),h('th',{text:'Направление'}),h('th',{text:'Эталон'}))),tb))));
+}
+
+/* ---------- 3. Где потеряны деньги ---------- */
+function renderLoss(main,s,f,B){
+  const t=B[state.target], g=planGap(s,f,t);
+  main.appendChild(h('h2',{text:'Где потеряны деньги относительно плана · на '+D+' '+RU_MG[CUR.m]}));
+  const seg=h('span',{class:'seg'},...[['ref','эталон'],['prev','прошлый месяц'],['dir','направление']].map(([v,l])=>h('button',{class:state.target===v?'on':'',onclick:()=>{state.target=v;render();}},l)));
+  main.appendChild(h('div',{class:'toolbar'},h('label',{},'Целевые конверсии и чек',seg),h('span',{style:'font-size:12.5px;color:var(--ink-2)',text:'План задаёт лиды и выручку; конверсии и чек, на которых он «держится», берутся из выбранной базы.'})));
+  const total=f.rev-g.Rp;
+  // водопад
+  const card=h('div',{class:'card'});main.appendChild(card);
+  card.appendChild(h('div',{class:'legend wf-legend'},h('span',{},h('i',{style:'background:var(--ink-2)'}),'план / факт'),h('span',{},h('i',{style:'background:var(--bad)'}),'потеряно'),h('span',{},h('i',{style:'background:var(--good)'}),'сверх плана')));
+  const box=h('div',{class:'chart'});card.appendChild(box);
+  requestAnimationFrame(()=>{
+    const items=[{name:'План на '+D+' '+RU_MG[CUR.m],v:g.Rp,abs:true},...g.factors.map(x=>({name:x.name,v:x.v,f:x})),{name:'Факт',v:f.rev,abs:true}];
+    const W=Math.max(box.clientWidth,640),H=300,m={l:70,r:12,t:22,b:46},pw=W-m.l-m.r,ph=H-m.t-m.b,n=items.length,band=pw/n,bw=Math.min(56,band*.55);
+    let run=0;const bars=items.map(it=>{if(it.abs){run=it.v;return {it,lo:0,hi:it.v};}const a=run,b=run+it.v;run=b;return {it,lo:Math.min(a,b),hi:Math.max(a,b)};});
+    const top=Math.max(...bars.map(b=>b.hi))*1.08, lo0=Math.min(0,...bars.map(b=>b.lo));
+    const Y=v=>m.t+ph-(v-lo0)/(top-lo0)*ph;
+    const svg=sv('svg',{viewBox:`0 0 ${W} ${H}`,height:H,role:'img','aria-label':'Разложение отклонения выручки от плана'},box);
+    const st=Math.pow(10,Math.floor(Math.log10(top/4)));const step=[1,2,2.5,5,10].map(x=>x*st).find(x=>top/x<=5);
+    for(let v=0;v<=top;v+=step){sv('line',{x1:m.l,x2:m.l+pw,y1:Y(v),y2:Y(v),stroke:'var(--grid)'},svg);txt(svg,m.l-8,Y(v)+4,v>=1e6?(v/1e6).toFixed(1).replace('.',',')+' млн':nf0.format(v/1e3)+' тыс',{'text-anchor':'end'});}
+    bars.forEach((b,i)=>{const x=m.l+i*band+(band-bw)/2;const col=b.it.abs?'var(--ink-2)':b.it.v<0?'var(--bad)':'var(--good)';
+      const hgt=Math.max(1,Y(b.lo)-Y(b.hi));sv('rect',{x,y:Y(b.hi),width:bw,height:hgt,rx:3,fill:col},svg);
+      if(i<bars.length-1){const yy=Y(b.it.abs?b.hi:(b.it.v<0?b.lo:b.hi));sv('line',{x1:x+bw,x2:x+band,y1:yy,y2:yy,stroke:'var(--axis)','stroke-dasharray':'3 3'},svg);}
+      const cm=v=>v<1e4?rub(v):mln(v);const lab=b.it.abs?mln(b.it.v):(b.it.v<0?'−':'+')+cm(Math.abs(b.it.v));
+      txt(svg,x+bw/2,Y(b.hi)-6,lab,{'text-anchor':'middle','font-weight':b.it.abs?650:400});
+      const words=b.it.name.split(' ');let l1='',l2='';words.forEach(w=>{if((l1+' '+w).trim().length<=14&&!l2)l1=(l1+' '+w).trim();else l2=(l2+' '+w).trim();});
+      txt(svg,x+bw/2,H-m.b+16,l1,{'text-anchor':'middle'});if(l2)txt(svg,x+bw/2,H-m.b+30,l2,{'text-anchor':'middle'});
+      const hit=sv('rect',{x:m.l+i*band,y:m.t,width:band,height:ph,fill:'transparent'},svg);
+      hit.addEventListener('pointermove',ev=>{const rows=b.it.abs?[{label:'выручка',value:rub(b.it.v)}]:[{label:b.it.v<0?'потеряно':'получено сверх плана',value:rub(Math.abs(b.it.v))},{label:'доля отклонения',value:total?pc(b.it.v/total,0):'н/д'},{label:'как считается',value:b.it.f.how}];showTip(ev,b.it.name,rows);});
+      hit.addEventListener('pointerleave',hideTip);});
+  });
+  // таблица факторов
+  const lossSum=g.factors.filter(x=>x.v<0).reduce((a,x)=>a+x.v,0);
+  const tb=h('tbody');
+  const factVal={L:num(f.L)+' из '+num(g.Lp),cr1:pc(f.cr1)+' vs '+pc(t.cr1),cr2:pc(f.cr2)+' vs '+pc(t.cr2),cr3:pc(f.cr3)+' vs '+pc(t.cr3),chk:rub(f.chk)+' vs '+rub(t.chk),old:rub(f.OR)+' vs '+rub(g.oldT)};
+  g.factors.slice().sort((a,b)=>a.v-b.v).forEach(x=>tb.appendChild(h('tr',{},h('td',{class:'l first',text:x.name}),h('td',{class:'l',text:factVal[x.k]}),
+    h('td',{style:'font-weight:650;color:'+(x.v<0?'var(--bad)':'var(--good)'),text:sgn(x.v,rub)}),h('td',{text:x.v<0&&lossSum?pc(x.v/lossSum,0):''}),h('td',{class:'l',style:'white-space:normal;color:var(--ink-2);font-size:12px',text:x.how}))));
+  tb.appendChild(h('tr',{class:'tot'},h('td',{class:'l first',text:'Итого: факт − план'}),h('td',{class:'l',text:rub(f.rev)+' vs '+rub(g.Rp)}),h('td',{style:'font-weight:650',text:sgn(total,rub)}),h('td'),h('td',{class:'l',style:'white-space:normal;color:var(--ink-2);font-size:12px',text:'сумма факторов точно равна отклонению'})));
+  main.appendChild(h('div',{class:'card'},h('h3',{text:'Потери по шагам воронки'}),
+    h('p',{class:'sub',text:'Отрицательные значения - сколько выручки не получено из-за этого шага, положительные - что компенсировало. План новых продаж на сегодня по цели: '+rub(g.newT)+', план продаж текущим ученикам: '+rub(g.oldT)+' (остаток плана выручки).'}),
+    h('div',{class:'tblwrap',style:'max-height:none'},h('table',{},h('thead',{},h('tr',{},h('th',{class:'l first',text:'Шаг'}),h('th',{class:'l',text:'Факт vs цель'}),h('th',{text:'Влияние на выручку'}),h('th',{text:'Доля потерь'}),h('th',{class:'l',text:'Как считается'}))),tb))));
+}
+
+/* ---------- 4. Методика и вопросы ---------- */
+function renderMethod(main){
+  const box=h('div',{class:'card method'});
+  const ul=items=>h('ul',{},...items.map(x=>h('li',{text:x})));
+  box.append(h('h2',{text:'Как считается (черновик)'}),
+    ul(['Все показатели - накопительно с 1-го числа по вчерашний день (как в отчёте по выручке). Прошлый месяц и направление - за те же дни, чтобы сравнение было честным.',
+      'Конверсии: постановки / лиды, встречи / постановки, первые продажи / встречи. Средний чек = новые продажи ₽ / первые продажи.',
+      'План на сегодня = план месяца × прошедшие дни / дней в месяце (равномерно). Если нужно с учётом дней недели или прошлогодней динамики - уточните.',
+      'Потери считаются цепными подстановками от «плана» к «факту» в порядке: чек → встреча→продажа → постановка→встреча → лид→постановка → лиды. Порядок выбран так, чтобы потери от лидов считались по текущим конверсиям и текущему чеку (как в вашем примере), а потери на конверсиях - на плановом числе лидов. Сумма всех факторов точно равна отклонению выручки от плана.',
+      'План новых продаж = лиды по плану × целевые конверсии × целевой чек; план продаж текущим ученикам = план выручки − план новых продаж (в источнике плана их разбивки нет).']),
+    h('h3',{text:'Риски данных'}),
+    ul(['Лаг воронки: лид, пришедший 18-го, ещё не успел дойти до пробного. Поэтому в середине месяца конверсии ниже, чем по итогам месяца. Сравнение с прошлым месяцем и направлением за те же дни это выравнивает, сравнение с эталоном (обычно месячные значения) - нет: в начале месяца школа будет выглядеть хуже эталона.',
+      'Конверсии «по периоду» (встречи месяца / постановки месяца) и «по когортам» (из лидов месяца сколько дошло до продажи) дают разные цифры. Нужно знать, как считает источник.']),
+    h('h3',{text:'Вопросы перед программированием'}),
+    h('div',{class:'q',text:'1. Источник воронки: одна Google-таблица со строками «школа × день» (лиды, постановки, встречи, первые продажи, новые ₽, старые ₽) или другой формат? Новые и старые продажи - из того же файла выручки (сумма = выручка школы) или отдельно?'}),
+    h('div',{class:'q',text:'2. Эталон: одни значения на всю сеть или свои для каждого направления? Нужен ли эталонный средний чек и эталон по продажам текущим ученикам?'}),
+    h('div',{class:'q',text:'3. План: только лиды и выручка на месяц по школе - или есть разбивка выручки на новые и старые продажи? Если есть, разложение потерь станет точнее.'}));
+  main.appendChild(box);
+}
+
+/* ---------- каркас ---------- */
+function render(){
+  const main=document.getElementById('main'),y=scrollY;main.textContent='';
+  const s=SCHOOLS.find(x=>x.id===state.school), f=agg(s.cur,D), B=bases(s);
+  document.querySelectorAll('#f-cmp button').forEach(b=>b.classList.toggle('on',b.dataset.v===state.cmp));
+  document.getElementById('asof').innerHTML='';document.getElementById('asof').append('Срез ',h('b',{text:D+'.'+String(CUR.m+1).padStart(2,'0')+'.'+CUR.y}),' (вчера) · день '+D+' из '+CUR.n);
+  main.appendChild(h('div',{class:'demo-banner',text:'Прототип на демо-данных: школы, цифры, план и эталон выдуманы, чтобы показать интерфейс. Источник воронки, плана и эталонов подключим после согласования.'}));
+  main.appendChild(h('h1',{style:'margin:6px 0 2px;font-size:22px',text:s.name+' · '+s.dir}));
+  main.appendChild(h('p',{class:'sub',text:'Экономика школы за '+RU_M[CUR.m]+' '+CUR.y+': воронка продаж, план и потери.'}));
+  renderPlan(main,s,f,planGap(s,f,B[state.target]));
+  renderFunnel(main,s,f,B);
+  renderLoss(main,s,f,B);
+  renderMethod(main);
+  scrollTo(0,y);
+}
+function init(){
+  const sel=document.getElementById('f-school');
+  Object.keys(DIRS).forEach(dir=>{const g=h('optgroup',{label:dir});SCHOOLS.filter(x=>x.dir===dir).forEach(x=>g.appendChild(h('option',{value:x.id,selected:x.id===state.school?'selected':null},x.name)));sel.appendChild(g);});
+  sel.addEventListener('change',e=>{state.school=e.target.value;render();});
+  document.querySelectorAll('#f-cmp button').forEach(b=>b.addEventListener('click',()=>{state.cmp=b.dataset.v;render();}));
+  document.getElementById('theme').addEventListener('click',()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('ns_dash_theme',JSON.stringify(r.dataset.theme));}catch(e){}render();});
+  let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,150);});
+  render();
+}
+/*NAVJS*/
+init();
+</script>
+</body></html>
