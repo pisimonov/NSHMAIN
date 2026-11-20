@@ -87,7 +87,7 @@ function school_parse_funnel(array $rows, string $cur, string $prev, string $she
         if (!$per) continue;
         $k = school_key($city, $dir);
         if (!isset($out[$k])) {
-            $out[$k] = ['id' => $k, 'city' => $city, 'dir' => str_replace('Барабны', 'Барабаны', $dir), 'plan' => null];
+            $out[$k] = ['id' => $k, 'city' => $city, 'dir' => str_replace('Барабны', 'Барабаны', $dir), 'plan' => null, 'tm' => null];
             foreach (['cur', 'prev'] as $p) foreach (SCHOOL_METRICS as $m) $out[$k][$p][$m] = array_fill(0, $n[$p], 0);
         }
         $day = (int)substr($d, 8, 2);
@@ -126,6 +126,58 @@ function school_parse_ref(array $rows, string $sheet, array &$warn): array {
     return $out;
 }
 
+/** «Ижевск-Барабны-1» -> ['Ижевск', 'Барабаны']; «Москва-Кидс-5» -> ['Москва 5', 'Кидс']; город с дефисом сохраняется. */
+function school_split_name(string $n): ?array {
+    $p = array_map(function ($x) { return norm_space(str_replace("\u{00A0}", ' ', $x)); }, explode('-', $n));
+    if (count($p) < 3) return null;
+    $num = array_pop($p); $dir = array_pop($p); $city = implode('-', $p);
+    if (!ctype_digit($num) || $city === '' || $dir === '') return null;
+    return [$city . ((int)$num > 1 ? ' ' . (int)$num : ''), str_replace('Барабны', 'Барабаны', $dir)];
+}
+/**
+ * Лист «РГ + ТМ» таблицы «Статус продажи <месяц>» (столбцы A-F).
+ * Строка с ФИО ТМ (только в B) открывает группу; дальше по 3 строки на школу:
+ * «- | Школа | КМ | План | Факт | %», «Школа | - | Выручка | план | факт | %», «Школа | - | Лиды | план | факт | %».
+ * Возвращает [ключ школы => ['name', 'tm', 'rev', 'leads']]. Пустые блоки без названия школы пропускаются.
+ */
+function school_parse_rgtm(array $rows, int $firstRow, string $sheet, array &$warn): array {
+    $txt = function ($v) { return norm_space(str_replace("\u{00A0}", ' ', (string)$v)); };
+    $out = []; $tm = null; $badNames = [];
+    foreach (array_slice($rows, max(0, $firstRow - 2)) as $row) {          // строка над первой школой - ТМ первой группы
+        [$a, $b, $c, $d] = [$txt($row[0] ?? ''), $txt($row[1] ?? ''), school_norm((string)($row[2] ?? '')), school_norm((string)($row[3] ?? ''))];
+        if ($b !== '' && $a === '' && $c === '' && $d === '') { $tm = preg_match('/^без\s*тм/iu', $b) ? null : $b; continue; }
+        if ($b !== '' && $a === '' && $d === 'план') {
+            $sp = school_split_name($b);
+            if (!$sp) { $badNames[] = $b; continue; }
+            $out[school_key($sp[0], $sp[1])] = ['name' => $b, 'tm' => $tm, 'rev' => null, 'leads' => null];
+            continue;
+        }
+        if ($a !== '' && ($c === 'выручка' || $c === 'лиды')) {
+            $sp = school_split_name($a);
+            if (!$sp) continue;
+            $k = school_key($sp[0], $sp[1]);
+            if (isset($out[$k])) $out[$k][$c === 'выручка' ? 'rev' : 'leads'] = ($row[3] ?? '') === '' ? null : parse_num($row[3]);
+        }
+    }
+    if ($badNames) $warn[] = "Лист «{$sheet}»: не разобраны названия школ (ожидается «Город-Направление-номер»): " . implode(', ', array_slice($badNames, 0, 10)) . '.';
+    if (!$out) $warn[] = "Лист «{$sheet}»: не найдено ни одной школы - проверьте номер первой строки данных в настройках.";
+    return $out;
+}
+/** Планы и ТМ текущего месяца из таблицы «Статус продажи»: [план по ключу школы, источник] или [[], null]. */
+function school_month_plan(array $s, SheetSource $src, string $cur, array &$warn): array {
+    $urls = (array)$s['school_month_urls'];
+    $mid = spreadsheet_id((string)($urls[$cur] ?? ''));
+    if (!$mid) {
+        if ($urls) $warn[] = 'Нет ссылки на таблицу «Статус продажи» за ' . month_label($cur) . ' - добавьте её в «Настройках» (Экономика школы → таблицы по месяцам).';
+        return [[], null];
+    }
+    try {
+        $rows = $src->values($mid, (string)$s['school_month_sheet'], 'A1:F');
+    } catch (Throwable $e) { $warn[] = 'Планы за ' . month_label($cur) . ' не загружены: ' . $e->getMessage(); return [[], null]; }
+    $plan = school_parse_rgtm($rows, (int)$s['school_month_first_row'], (string)$s['school_month_sheet'], $warn);
+    return [$plan, ['kind' => 'live', 'id' => $mid, 'rows' => count($rows)]];
+}
+
 function school_build(array $s, SheetSource $src, string $dir, array &$warn): array {
     $now = new DateTimeImmutable((!empty($s['dev_csv_dir']) && !empty($s['dev_now'])) ? $s['dev_now'] : 'now');
     $yday = $now->modify('-1 day');
@@ -133,28 +185,37 @@ function school_build(array $s, SheetSource $src, string $dir, array &$warn): ar
     $id = spreadsheet_id((string)$s['school_url']);
     $meta = ['today' => $now->format('Y-m-d'), 'loadedAt' => $now->format('c'), 'cur' => $cur, 'curN' => month_days($cur), 'prev' => $prev, 'prevN' => month_days($prev),
              'sheets' => ['funnel' => $s['school_funnel_sheet'], 'plan' => $s['school_plan_sheet'], 'ref' => $s['school_ref_sheet']]];
+    [$mPlan, $mSrc] = school_month_plan($s, $src, $cur, $warn);
+    $mSources = $mSrc ? ['Планы и ТМ: ' . month_label($cur) => $mSrc] : [];
+    $mSummary = ['Планы и ТМ за ' . month_label($cur) => $mSrc ? count($mPlan) . ' школ, ТМ: ' . count(array_unique(array_filter(array_column($mPlan, 'tm')))) : 'нет таблицы за месяц'];
     if (!$id) {
-        return ['payload' => ['meta' => $meta + ['configured' => false], 'schools' => [], 'refs' => new stdClass()], 'sources' => [],
-                'summary' => ['Источник' => 'не указан - отчёт показывает инструкцию по подготовке таблицы']];
+        return ['payload' => ['meta' => $meta + ['configured' => false, 'planSchools' => count($mPlan)], 'schools' => [], 'refs' => new stdClass()], 'sources' => $mSources,
+                'summary' => ['Воронка' => 'не указана - отчёт показывает инструкцию по подготовке таблицы'] + $mSummary];
     }
     $planId = spreadsheet_id((string)$s['school_plan_url']) ?: $id;
     $refId = spreadsheet_id((string)$s['school_ref_url']) ?: $id;
     $fRows = $src->values($id, (string)$s['school_funnel_sheet'], SCHOOL_COLS);
     [$schools, $lastDay] = school_parse_funnel($fRows, $cur, $prev, (string)$s['school_funnel_sheet'], $warn);
-    $sources = ['Воронка' => ['kind' => 'live', 'id' => $id, 'rows' => count($fRows)]];
-    $plan = []; $refs = [];
-    try {
-        $pRows = $src->values($planId, (string)$s['school_plan_sheet'], SCHOOL_COLS);
-        $plan = school_parse_plan($pRows, $cur, (string)$s['school_plan_sheet'], $warn);
-        $sources['План'] = ['kind' => 'live', 'id' => $planId, 'rows' => count($pRows)];
-    } catch (Throwable $e) { $warn[] = 'План не загружен: ' . $e->getMessage(); }
+    $sources = ['Воронка' => ['kind' => 'live', 'id' => $id, 'rows' => count($fRows)]] + $mSources;
+    $plan = $mPlan; $refs = [];
+    if (!$mPlan) {        // запасной вариант - лист «План» в таблице воронки
+        try {
+            $pRows = $src->values($planId, (string)$s['school_plan_sheet'], SCHOOL_COLS);
+            $plan = school_parse_plan($pRows, $cur, (string)$s['school_plan_sheet'], $warn);
+            $sources['План'] = ['kind' => 'live', 'id' => $planId, 'rows' => count($pRows)];
+        } catch (Throwable $e) { $warn[] = 'План не загружен: ' . $e->getMessage(); }
+    }
     try {
         $rRows = $src->values($refId, (string)$s['school_ref_sheet'], SCHOOL_COLS);
         $refs = school_parse_ref($rRows, (string)$s['school_ref_sheet'], $warn);
         $sources['Эталон'] = ['kind' => 'live', 'id' => $refId, 'rows' => count($rRows)];
     } catch (Throwable $e) { $warn[] = 'Эталон не загружен: ' . $e->getMessage(); }
     $noFunnel = 0;
-    foreach ($plan as $k => $p) { if (isset($schools[$k])) $schools[$k]['plan'] = $p; else $noFunnel++; }
+    foreach ($plan as $k => $p) {
+        if (!isset($schools[$k])) { $noFunnel++; continue; }
+        $schools[$k]['tm'] = $p['tm'] ?? null;
+        if (($p['rev'] ?? 0) > 0 || ($p['leads'] ?? 0) > 0) $schools[$k]['plan'] = ['leads' => (float)($p['leads'] ?? 0), 'rev' => (float)($p['rev'] ?? 0)];
+    }
     if ($noFunnel) $warn[] = "План: {$noFunnel} школ из листа плана нет в воронке (город и направление должны совпадать).";
     // срез: вчера, но не дальше последнего дня, за который в воронке есть данные
     $D = (int)$yday->format('j');
@@ -166,6 +227,7 @@ function school_build(array $s, SheetSource $src, string $dir, array &$warn): ar
     return ['payload' => $payload, 'sources' => $sources, 'summary' => [
         'Месяц / срез' => month_label($cur) . ' · по ' . max(1, $D) . '-е число',
         'Школ в воронке / с планом' => count($schools) . ' / ' . count(array_filter($schools, function ($x) { return $x['plan']; })),
+    ] + $mSummary + [
         'Эталон' => $refs ? implode(', ', array_map(function ($k) { return $k === '*' ? 'вся сеть' : $k; }, array_keys($refs))) : 'не задан',
     ]];
 }
@@ -196,13 +258,13 @@ function school_month_preview(array $s, string $ym): void {
 function school_admin(array $s): void {
     $mu = ''; foreach ((array)$s['school_month_urls'] as $ym => $url) $mu .= $ym . ' ' . $url . "\n"; ?>
     <h3 style="margin:4px 0 6px">Таблицы «Статус продажи» по месяцам (планы школ и ТМ)</h3>
-    <p style="font-size:13px;margin:0 0 8px">Каждый месяц создаётся отдельная таблица. Добавляйте строку на каждый новый месяц: месяц и ссылка. Планы лидов и выручки по школам и ФИО территориальных менеджеров берутся с листа ниже.</p>
+    <p style="font-size:13px;margin:0 0 8px">Каждый месяц создаётся отдельная таблица. Добавляйте строку на каждый новый месяц: месяц и ссылка. С листа ниже берутся планы выручки и лидов по школам (блоки «Школа / Выручка / Лиды», столбец «План») и ФИО территориальных менеджеров (строка с ФИО над группой школ). Читаются только столбцы A-F.</p>
     <div class="field"><label>Месяц и ссылка (по одной в строке)</label>
       <textarea name="school_month_urls" rows="4" placeholder="2026-12 https://docs.google.com/spreadsheets/d/.../edit"><?= e($mu) ?></textarea>
       <span class="hint">Месяц - как 2026-12 или «Декабрь 2026». Каждую таблицу нужно открыть на чтение для сервисного аккаунта.</span></div>
     <div class="row3">
       <div class="field"><label>Лист с планами</label><input type="text" name="school_month_sheet" value="<?= e($s['school_month_sheet']) ?>"></div>
-      <div class="field"><label>Данные начинаются со строки</label><input type="number" name="school_month_first_row" min="2" max="50" value="<?= e($s['school_month_first_row']) ?>"></div>
+      <div class="field"><label>Первая школа - в строке</label><input type="number" name="school_month_first_row" min="2" max="50" value="<?= e($s['school_month_first_row']) ?>"></div>
     </div>
     <?php if ($s['school_month_urls']): ?>
       <div style="font-size:13px;margin:0 0 10px">Показать первые строки листа:

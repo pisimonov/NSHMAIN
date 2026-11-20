@@ -82,7 +82,10 @@ const axisTxt=v=>v>=1e6?(v/1e6).toFixed(1).replace('.',',')+' млн':v>=1e3?nf0
 
 /* ---------- состояние ---------- */
 const store={get(k,d){try{const v=localStorage.getItem('ns_school_'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('ns_school_'+k,JSON.stringify(v));}catch(e){}}};
-const state={school:store.get('school',null),cmp:store.get('cmp','prev'),target:store.get('target','ref')};
+const NO_TM='Без ТМ';
+const tmOf=x=>x.tm||NO_TM;
+const state={school:store.get('school',null),tm:store.get('tm','all'),cmp:store.get('cmp','prev'),target:store.get('target','ref')};
+if(state.tm!=='all'&&!SCHOOLS.some(x=>tmOf(x)===state.tm))state.tm='all';
 if(!SCHOOLS.some(x=>x.id===state.school))state.school=SCHOOLS.length?SCHOOLS[0].id:null;
 
 /* ---------- 1. План и факт ---------- */
@@ -283,7 +286,7 @@ function render(){
   if(!META.configured){
     const fl=document.querySelector('header .filters');if(fl)fl.style.display='none';
     main.appendChild(h('h1',{style:'margin:14px 0 4px;font-size:22px',text:'Экономика школы'}));
-    main.appendChild(h('div',{class:'info-banner',text:'Источник данных ещё не подключён. Подготовьте Google-таблицу в формате ниже, откройте её на чтение сервисному аккаунту и укажите ссылку в «Настройках» → «Источники и параметры: Экономика школы». Затем нажмите «Обновить».'}));
+    main.appendChild(h('div',{class:'info-banner',text:'Источник данных воронки ещё не подключён. Подготовьте Google-таблицу в формате ниже, откройте её на чтение сервисному аккаунту и укажите ссылку в «Настройках» → «Источники и параметры: Экономика школы». Затем нажмите «Обновить».'+(META.planSchools?' Планы и ТМ за '+RU_M[CUR.m]+' уже загружены из таблицы «Статус продажи»: '+META.planSchools+' школ.':'')}));
     main.appendChild(formatCard());return;
   }
   setAsof();
@@ -292,7 +295,7 @@ function render(){
   const f=agg(s.cur,D), B=bases(s);
   document.querySelectorAll('#f-cmp button').forEach(b=>{b.classList.toggle('on',b.dataset.v===state.cmp);b.disabled=!B[b.dataset.v];b.title=B[b.dataset.v]?'':'нет данных для этой школы';});
   main.appendChild(h('h1',{style:'margin:14px 0 2px;font-size:22px',text:s.name+' · '+s.dir}));
-  main.appendChild(h('p',{class:'sub',text:'Экономика школы за '+RU_M[CUR.m]+' '+CUR.y+': воронка продаж, план и потери.'}));
+  main.appendChild(h('p',{class:'sub'},'Экономика школы за '+RU_M[CUR.m]+' '+CUR.y+': воронка продаж, план и потери. ',s.tm?h('span',{},'Территориальный менеджер: ',h('b',{text:s.tm})):h('span',{class:'muted',text:'ТМ не закреплён.'})));
   renderPlan(main,s,f,planGap(s,f,B[state.target]));
   renderFunnel(main,s,f,B);
   renderLoss(main,s,f,B);
@@ -300,9 +303,21 @@ function render(){
   scrollTo(0,y);
 }
 function init(){
-  const sel=document.getElementById('f-school');
+  const sel=document.getElementById('f-school'), tmSel=document.getElementById('f-tm');
+  // список школ - по выбранному ТМ, сгруппирован по направлениям
+  const fillSchools=()=>{
+    const list=SCHOOLS.filter(x=>state.tm==='all'||tmOf(x)===state.tm);
+    if(list.length&&!list.some(x=>x.id===state.school)){state.school=list[0].id;store.set('school',state.school);}
+    sel.textContent='';
+    [...new Set(list.map(x=>x.dir))].forEach(dir=>{const g=h('optgroup',{label:dir});list.filter(x=>x.dir===dir).forEach(x=>g.appendChild(h('option',{value:x.id,selected:x.id===state.school?'selected':null},x.name)));sel.appendChild(g);});
+  };
+  if(tmSel){
+    const tms=[...new Set(SCHOOLS.map(tmOf))].sort((a,b)=>a===NO_TM?1:b===NO_TM?-1:a.localeCompare(b,'ru'));
+    tms.forEach(t=>tmSel.appendChild(h('option',{value:t,selected:t===state.tm?'selected':null},t+' ('+SCHOOLS.filter(x=>tmOf(x)===t).length+')')));
+    tmSel.addEventListener('change',e=>{state.tm=e.target.value;store.set('tm',state.tm);fillSchools();render();});
+  }
   if(sel){
-    [...new Set(SCHOOLS.map(x=>x.dir))].forEach(dir=>{const g=h('optgroup',{label:dir});SCHOOLS.filter(x=>x.dir===dir).forEach(x=>g.appendChild(h('option',{value:x.id,selected:x.id===state.school?'selected':null},x.name)));sel.appendChild(g);});
+    fillSchools();
     sel.addEventListener('change',e=>{state.school=e.target.value;store.set('school',state.school);render();});
   }
   document.querySelectorAll('#f-cmp button').forEach(b=>b.addEventListener('click',()=>{state.cmp=b.dataset.v;store.set('cmp',state.cmp);render();}));
