@@ -47,14 +47,15 @@ check('registry', array_keys(reports()), ['revenue', 'school', 'debt']);
 check('debt month', debt_mi('2023_1'), 2023 * 12);
 
 /* ---------- синтетическая выручка: 3 месяца, 3 школы ---------- */
-$hdr = ['Страна', 'Город', 'Размер', 'Направление', 'Школа (суффикс)', 'Дата', 'Выручка (валюта)', 'Выручка (рубли)', 'URL', 'Валюта', 'Школа', 'Партнер', 'Закрыта', 'Сумма возвратов'];
+$hdr = ['Страна', 'Город', 'Размер', 'Направление', 'Школа (суффикс)', 'Дата', 'Выручка (валюта)', 'Выручка (рубли)', 'URL', 'Валюта', 'Школа', 'Партнер', 'Закрыта', 'Сумма возвратов',
+        'Кол-во постановок', 'Кол-во встреч', 'Кол-во первых продаж', 'Новые продажи (рубли)', 'Старые продажи (рубли)', 'Кол-во новых лидов'];
 $schools = [['Россия', 'Москва', 'Барабны', 'Москва-Барабны-1', 'УК', ''], ['Россия', 'Тула', 'Вокал', 'Тула-Вокал-1', 'Иванов', ''],
             ['Беларусь', 'Минск', 'Барабны', 'Минск-Барабны-1', 'Петров', 'Закрыта']];
 $expect = [];
 foreach (['2025-11' => 30, '2026-10' => 31, '2026-11' => 20] as $ym => $days) {
     $rows = [$hdr]; $tot = 0;
     foreach ($schools as $k => [$co, $city, $dir, $name, $partner, $closed]) {
-        for ($d = 1; $d <= $days; $d++) { $v = 1000 * ($k + 1) + $d; $tot += $v; $rows[] = [$co, $city, '', $dir, 1, sprintf('%s-%02d', $ym, $d), $v, $v, 'u', 'RUB', $name, $partner, $closed, 10]; }
+        for ($d = 1; $d <= $days; $d++) { $v = 1000 * ($k + 1) + $d; $tot += $v; $sale = $d % 5 === 0 ? 1 : 0; $rows[] = [$co, $city, '', $dir, 1, sprintf('%s-%02d', $ym, $d), $v, $v, 'u', 'RUB', $name, $partner, $closed, 10, 2, 1, $sale, 500 * $sale, $v - 500 * $sale, 3]; }
     }
     $expect[$ym] = $tot;
     csv_write("{$tmp}/csv/{$ym}.csv", $rows);
@@ -150,7 +151,18 @@ check('без архива: пометка stale', array_keys((array)$m['stale']
 check('без архива: предупреждение', (bool)preg_grep('/Октябрь 2026: архивный файл не найден/u', $w), true);
 
 /* ---------- экономика школы ---------- */
-check('school: без ссылки - инструкция, не ошибка', $out['school']['payload']['meta']['configured'], false);
+// воронка из файлов выручки (без отдельной таблицы воронки)
+$fp = $out['school']['payload'];
+check('школа из выручки: источник и срез', [$fp['meta']['configured'], $fp['meta']['funnelSrc'], $fp['meta']['D']], [true, 'revenue', 20]);
+check('школа из выручки: школы', array_map(function ($x) { return $x['city'] . '|' . $x['dir']; }, $fp['schools']), ['Минск|Барабаны', 'Москва|Барабаны', 'Тула|Вокал']);
+$tula = $fp['schools'][2];
+check('школа из выручки: лиды 1-20', array_sum(array_slice($tula['cur']['L'], 0, 20)), 60.0);
+check('школа из выручки: первые продажи и новые ₽', [array_sum($tula['cur']['S']), array_sum($tula['cur']['NR'])], [4.0, 2000.0]);
+check('школа из выручки: новые + старые = выручка', array_sum($tula['cur']['NR']) + array_sum($tula['cur']['OR']), (float)array_sum(array_map(function ($d) { return 2000 + $d; }, range(1, 20))));
+check('школа из выручки: прошлый месяц', array_sum($tula['prev']['L']), 93.0);
+@unlink(report_dir('revenue') . '/funnel.json');
+$wn = [];
+check('школа без воронки - инструкция, не ошибка', school_build(array_replace(default_settings(), $s), make_source_for_test($s), report_dir('school'), $wn)['payload']['meta']['configured'], false);
 // воронка: столбцы в другом порядке и регистре, две школы, текущий и прошлый месяц, дубль строки за день
 csv_write("{$tmp}/csv/school__Воронка.csv", [
     ['Сводка воронки'],

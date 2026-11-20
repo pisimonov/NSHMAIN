@@ -178,6 +178,20 @@ function school_month_plan(array $s, SheetSource $src, string $cur, array &$warn
     return [$plan, ['kind' => 'live', 'id' => $mid, 'rows' => count($rows)]];
 }
 
+/** Воронка по дням из файлов выручки (funnel.json отчёта «Накопленная выручка месяца»). */
+function school_from_revenue(array $fun): array {
+    $out = [];
+    $n = ['cur' => month_days($fun['cur']), 'prev' => month_days($fun['prev'])];
+    foreach ($fun['schools'] as $name => $x) {
+        $sp = school_split_name((string)$name) ?: [norm_space((string)$x['c']), str_replace('Барабны', 'Барабаны', norm_space((string)$x['d']))];
+        $k = school_key($sp[0], $sp[1]);
+        $row = ['id' => $k, 'city' => $sp[0], 'dir' => $sp[1], 'name' => (string)$name, 'co' => $x['co'] ?? '', 'closed' => !empty($x['cl']), 'plan' => null, 'tm' => null];
+        foreach (['cur', 'prev'] as $p) foreach (SCHOOL_METRICS as $m) $row[$p][$m] = isset($x[$p][$m]) ? array_map('floatval', $x[$p][$m]) : array_fill(0, $n[$p], 0.0);
+        $out[$k] = $row;
+    }
+    return $out;
+}
+
 function school_build(array $s, SheetSource $src, string $dir, array &$warn): array {
     $now = new DateTimeImmutable((!empty($s['dev_csv_dir']) && !empty($s['dev_now'])) ? $s['dev_now'] : 'now');
     $yday = $now->modify('-1 day');
@@ -185,27 +199,38 @@ function school_build(array $s, SheetSource $src, string $dir, array &$warn): ar
     $id = spreadsheet_id((string)$s['school_url']);
     $meta = ['today' => $now->format('Y-m-d'), 'loadedAt' => $now->format('c'), 'cur' => $cur, 'curN' => month_days($cur), 'prev' => $prev, 'prevN' => month_days($prev),
              'sheets' => ['funnel' => $s['school_funnel_sheet'], 'plan' => $s['school_plan_sheet'], 'ref' => $s['school_ref_sheet']]];
+    // воронка: отдельная таблица, если указана в настройках; иначе - файлы отчёта по выручке
+    $fun = $id ? null : read_json(report_dir('revenue') . '/funnel.json');
+    $useRev = is_array($fun) && !empty($fun['schools']) && ($fun['cur'] ?? '') === $cur;
+    if (is_array($fun) && !$useRev && !empty($fun['cur'])) $warn[] = 'Воронка из файлов выручки - за ' . month_label($fun['cur']) . ', а нужен ' . month_label($cur) . ': сначала обновите отчёт «Накопленная выручка месяца».';
     [$mPlan, $mSrc] = school_month_plan($s, $src, $cur, $warn);
     $mSources = $mSrc ? ['Планы и ТМ: ' . month_label($cur) => $mSrc] : [];
     $mSummary = ['Планы и ТМ за ' . month_label($cur) => $mSrc ? count($mPlan) . ' школ, ТМ: ' . count(array_unique(array_filter(array_column($mPlan, 'tm')))) : 'нет таблицы за месяц'];
-    if (!$id) {
+    if (!$useRev && !$id) {
         return ['payload' => ['meta' => $meta + ['configured' => false, 'planSchools' => count($mPlan)], 'schools' => [], 'refs' => new stdClass()], 'sources' => $mSources,
-                'summary' => ['Воронка' => 'не указана - отчёт показывает инструкцию по подготовке таблицы'] + $mSummary];
+                'summary' => ['Воронка' => 'нет данных: обновите отчёт «Накопленная выручка месяца»'] + $mSummary];
     }
     $planId = spreadsheet_id((string)$s['school_plan_url']) ?: $id;
     $refId = spreadsheet_id((string)$s['school_ref_url']) ?: $id;
-    $fRows = $src->values($id, (string)$s['school_funnel_sheet'], SCHOOL_COLS);
-    [$schools, $lastDay] = school_parse_funnel($fRows, $cur, $prev, (string)$s['school_funnel_sheet'], $warn);
-    $sources = ['Воронка' => ['kind' => 'live', 'id' => $id, 'rows' => count($fRows)]] + $mSources;
+    if ($useRev) {
+        $schools = school_from_revenue($fun);
+        $lastDay = substr((string)$fun['asOf'], 0, 7) === $cur ? (int)substr((string)$fun['asOf'], 8, 2) : 0;
+        $sources = ['Воронка: файлы выручки' => ['kind' => 'cache', 'id' => 'отчёт «Накопленная выручка месяца»', 'rows' => count($schools), 'at' => $fun['generatedAt'] ?? null]] + $mSources;
+        if (empty($fun['has']['prev'])) $warn[] = 'Воронки за ' . month_label($prev) . ' нет - сравнение с прошлым месяцем будет пустым.';
+    } else {
+        $fRows = $src->values($id, (string)$s['school_funnel_sheet'], SCHOOL_COLS);
+        [$schools, $lastDay] = school_parse_funnel($fRows, $cur, $prev, (string)$s['school_funnel_sheet'], $warn);
+        $sources = ['Воронка' => ['kind' => 'live', 'id' => $id, 'rows' => count($fRows)]] + $mSources;
+    }
     $plan = $mPlan; $refs = [];
-    if (!$mPlan) {        // запасной вариант - лист «План» в таблице воронки
+    if (!$mPlan && $planId) {        // запасной вариант - лист «План» в таблице воронки
         try {
             $pRows = $src->values($planId, (string)$s['school_plan_sheet'], SCHOOL_COLS);
             $plan = school_parse_plan($pRows, $cur, (string)$s['school_plan_sheet'], $warn);
             $sources['План'] = ['kind' => 'live', 'id' => $planId, 'rows' => count($pRows)];
         } catch (Throwable $e) { $warn[] = 'План не загружен: ' . $e->getMessage(); }
     }
-    try {
+    if ($refId) try {            // эталон пока не показывается; читается, только если задан отдельный источник
         $rRows = $src->values($refId, (string)$s['school_ref_sheet'], SCHOOL_COLS);
         $refs = school_parse_ref($rRows, (string)$s['school_ref_sheet'], $warn);
         $sources['Эталон'] = ['kind' => 'live', 'id' => $refId, 'rows' => count($rRows)];
@@ -221,6 +246,11 @@ function school_build(array $s, SheetSource $src, string $dir, array &$warn): ar
     $D = (int)$yday->format('j');
     if ($lastDay && $lastDay < $D) { $warn[] = "В воронке нет данных после {$lastDay} числа - срез сдвинут на {$lastDay}-е."; $D = $lastDay; }
     if (!$schools) $warn[] = 'В воронке нет строк за ' . month_label($cur) . ' и ' . month_label($prev) . '.';
+    $meta['funnelSrc'] = $useRev ? 'revenue' : 'sheet';
+    $meta['planSheet'] = $s['school_month_sheet'];
+    // в списке - школы с активностью в текущем или прошлом месяце либо с планом (закрытые и пустые строки файла выручки - нет)
+    $active = function ($x) { foreach (['cur', 'prev'] as $p) foreach (['L', 'NR', 'OR'] as $m) if (array_sum($x[$p][$m]) > 0) return true; return !empty($x['plan']); };
+    $schools = array_filter($schools, $active);
     uasort($schools, function ($a, $b) { return [$a['dir'], $a['city']] <=> [$b['dir'], $b['city']]; });
     $payload = ['meta' => $meta + ['configured' => true, 'D' => max(1, $D), 'asOf' => $cur . '-' . sprintf('%02d', max(1, $D)), 'shifted' => $lastDay && $lastDay < (int)$yday->format('j')],
                 'schools' => array_values($schools), 'refs' => $refs ?: new stdClass()];
@@ -274,7 +304,8 @@ function school_admin(array $s): void {
       </div>
       <?php $pv = (string)($_GET['school_preview'] ?? ''); if (preg_match('/^\d{4}-\d{2}$/', $pv)) school_month_preview($s, $pv); ?>
     <?php endif; ?>
-    <h3 style="margin:14px 0 6px">Воронка и эталон</h3>
+    <h3 style="margin:14px 0 6px">Отдельный источник воронки (не обязательно)</h3>
+    <p style="font-size:13px;margin:0 0 8px">Факт воронки берётся из файлов отчёта «Накопленная выручка месяца» (столбцы «Кол-во новых лидов», «Кол-во постановок», «Кол-во встреч», «Кол-во первых продаж», «Новые продажи (рубли)», «Старые продажи (рубли)»). Если указать ссылку ниже, воронка будет браться из этой таблицы вместо файлов выручки.</p>
     <p style="font-size:13px;margin:0 0 10px">Таблица с листами «Воронка» (школа × день), «План» (месяц × школа) и «Эталон» (по направлениям). Формат листов - на странице отчёта, пока ссылка не указана, и в разделе «Методика».</p>
     <div class="field"><label>Ссылка на таблицу воронки</label>
       <input type="url" name="school_url" value="<?= e($s['school_url']) ?>" placeholder="https://docs.google.com/spreadsheets/d/...">

@@ -7,7 +7,10 @@ const D=META.D||1;
 const SCHOOLS=(DATA.schools||[]).map(x=>Object.assign(x,{name:x.city}));
 const REFS=DATA.refs||{};
 const nk=s=>String(s||'').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
-const refFor=dir=>REFS[nk(dir)]||REFS['*']||null;
+const SHOW_REF=false;   // эталонная воронка пока не показывается
+const refFor=dir=>SHOW_REF?(REFS[nk(dir)]||REFS['*']||null):null;
+const BASES=SHOW_REF?['prev','dir','ref']:['prev','dir'];
+const BASE_LBL={prev:'Прошлый месяц',dir:'Направление',ref:'Эталон'};
 
 /* ---------- форматирование ---------- */
 const nf0=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
@@ -84,8 +87,10 @@ const axisTxt=v=>v>=1e6?(v/1e6).toFixed(1).replace('.',',')+' млн':v>=1e3?nf0
 const store={get(k,d){try{const v=localStorage.getItem('ns_school_'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('ns_school_'+k,JSON.stringify(v));}catch(e){}}};
 const NO_TM='Без ТМ';
 const tmOf=x=>x.tm||NO_TM;
-const state={school:store.get('school',null),tm:store.get('tm','all'),cmp:store.get('cmp','prev'),target:store.get('target','ref')};
+const state={school:store.get('school',null),tm:store.get('tm','all'),cmp:store.get('cmp','prev'),target:store.get('target','prev')};
 if(state.tm!=='all'&&!SCHOOLS.some(x=>tmOf(x)===state.tm))state.tm='all';
+if(!BASES.includes(state.cmp))state.cmp='prev';
+if(!BASES.includes(state.target))state.target='prev';
 if(!SCHOOLS.some(x=>x.id===state.school))state.school=SCHOOLS.length?SCHOOLS[0].id:null;
 
 /* ---------- 1. План и факт ---------- */
@@ -154,20 +159,20 @@ const STAGES=[
 function renderFunnel(main,s,f,B){
   const c=B[state.cmp];
   main.appendChild(h('h2',{text:'Воронка продаж · 1-'+D+' '+RU_MG[CUR.m]}));
-  if(!c){main.appendChild(h('div',{class:'info-banner',text:'База сравнения «'+{prev:'Прошлый месяц',dir:'Направление',ref:'Эталон'}[state.cmp]+'» недоступна для этой школы: нет данных. Выберите другую базу вверху.'}));}
+  if(!c){main.appendChild(h('div',{class:'info-banner',text:'База сравнения «'+BASE_LBL[state.cmp]+'» недоступна для этой школы: нет данных. Выберите другую базу вверху.'}));}
   main.appendChild(h('p',{class:'sub',text:c?'Синий - школа. Пунктирный контур - сколько было бы на этапе при тех же лидах, но с конверсиями базы сравнения ('+c.label.toLowerCase()+': '+c.note+'). Контур длиннее полосы - школа теряет людей на этом шаге.':'Синий - школа.'}));
   const fn=h('div',{class:'fn'});
   fn.append(h('div',{class:'hd',text:'Этап'}),h('div',{class:'hd',text:'Школа и база сравнения при тех же лидах'}),h('div',{class:'hd',style:'text-align:right',text:'Школа'}),h('div',{class:'hd',text:c?c.label+(c.noAbs?'':' (факт)'):''}));
   const cu=c&&ok(c.cr1)&&ok(c.cr2)&&ok(c.cr3);
   const exp={L:f.L};if(cu){exp.B=f.L*c.cr1;exp.M=exp.B*c.cr2;exp.S=exp.M*c.cr3;}
-  const max=Math.max(f.L,1);
+  const max=Math.max(1,...STAGES.map(st=>f[st.k]),...(cu?[exp.B,exp.M,exp.S]:[]));   // постановок бывает больше лидов (записи из прошлых лидов)
   STAGES.forEach((st,i)=>{
     if(st.cr){
       fn.appendChild(h('div',{class:'cv'},h('div',{class:'arrow',text:'↓ '+st.crName}),
         h('div',{},h('span',{class:'rate',text:pc(f[st.cr])}),c?' vs '+pc(c[st.cr])+' ':'',c?chip(f[st.cr]-c[st.cr],true,pp):null),h('div'),h('div')));
     }
     const fill=h('div',{class:'fill',style:'width:'+(f[st.k]/max*100)+'%'});
-    const ghost=i&&cu?h('div',{class:'ghost',style:'width:'+Math.min(100,exp[st.k]/max*100)+'%'}):null;
+    const ghost=i&&cu?h('div',{class:'ghost',style:'width:'+(exp[st.k]/max*100)+'%'}):null;
     const lost=cu?exp[st.k]-f[st.k]:null;
     const cmpTxt=!c?'':c.noAbs?(i&&cu?'при ваших лидах ≈ '+num(exp[st.k]):'нет объёмов'):num(c[st.k])+(i&&cu?' · при ваших лидах ≈ '+num(exp[st.k]):'');
     const row=h('div',{class:'row'},h('div',{class:'st'},st.name,h('small',{text:st.sub})),h('div',{class:'track'},fill,ghost),h('div',{class:'v',text:num(f[st.k])}),h('div',{class:'cmp'},cmpTxt));
@@ -201,17 +206,17 @@ function renderFunnel(main,s,f,B){
     ['Средний чек','chk',rub],['Новые продажи','NR',rub,true],['Старые продажи','OR',rub,true],['Новая выручка на 1 лид','rpl',rub]];
   const tb=h('tbody');
   rows.forEach(([n,k,fm,abs])=>{const tr=h('tr',{},h('td',{class:'l first',text:n}),h('td',{style:'font-weight:650',text:fm(f[k])}));
-    ['prev','dir','ref'].forEach(b=>{const bb=B[b];const v=bb?bb[k]:null;const show=bb&&!(abs&&bb.noAbs)&&ok(v);
+    BASES.forEach(b=>{const bb=B[b];const v=bb?bb[k]:null;const show=bb&&!(abs&&bb.noAbs)&&ok(v);
       tr.appendChild(h('td',{},show?fm(v):'-',show&&!abs?h('div',{style:'font-size:11px'},chip(ok(f[k])?f[k]-v:null,true,k==='chk'||k==='rpl'?x=>rub(x):pp)):null));});
     tb.appendChild(tr);});
-  main.appendChild(h('div',{class:'card'},h('h3',{text:'Все базы сравнения рядом'}),h('p',{class:'sub',text:'Прошлый месяц и направление - за те же 1-'+D+' дней месяца. Направление: объёмы - в среднем на одну школу, конверсии - по суммам всех школ направления (крупные школы весят больше). Эталон задаёт только конверсии и чек. «-» - нет данных.'}),
-    h('div',{class:'tblwrap cmp-tbl',style:'max-height:none'},h('table',{},h('thead',{},h('tr',{},h('th',{class:'l first',text:'Показатель'}),h('th',{text:'Школа'}),h('th',{text:'Прошлый месяц'}),h('th',{text:'Направление'}),h('th',{text:'Эталон'}))),tb))));
+  main.appendChild(h('div',{class:'card'},h('h3',{text:'Все базы сравнения рядом'}),h('p',{class:'sub',text:'Прошлый месяц и направление - за те же 1-'+D+' дней месяца. Направление: объёмы - в среднем на одну школу, конверсии - по суммам всех школ направления (крупные школы весят больше). «-» - нет данных.'}),
+    h('div',{class:'tblwrap cmp-tbl',style:'max-height:none'},h('table',{},h('thead',{},h('tr',{},h('th',{class:'l first',text:'Показатель'}),h('th',{text:'Школа'}),...BASES.map(b=>h('th',{text:BASE_LBL[b]})))),tb))));
 }
 
 /* ---------- 3. Где потеряны деньги ---------- */
 function renderLoss(main,s,f,B){
   main.appendChild(h('h2',{text:'Где потеряны деньги относительно плана · на '+D+' '+RU_MG[CUR.m]}));
-  const seg=h('span',{class:'seg'},...[['ref','эталон'],['prev','прошлый месяц'],['dir','направление']].map(([v,l])=>h('button',{type:'button',class:state.target===v?'on':'',disabled:usable(B[v])?null:'disabled',title:usable(B[v])?null:'нет данных',onclick:()=>{state.target=v;store.set('target',v);render();}},l)));
+  const seg=h('span',{class:'seg'},...[['ref','эталон'],['prev','прошлый месяц'],['dir','направление']].filter(([v])=>BASES.includes(v)).map(([v,l])=>h('button',{type:'button',class:state.target===v?'on':'',disabled:usable(B[v])?null:'disabled',title:usable(B[v])?null:'нет данных',onclick:()=>{state.target=v;store.set('target',v);render();}},l)));
   main.appendChild(h('div',{class:'toolbar'},h('label',{},'Целевые конверсии и чек',seg),h('span',{style:'font-size:12.5px;color:var(--ink-2)',text:'План задаёт лиды и выручку; конверсии и чек, на которых он «держится», берутся из выбранной базы.'})));
   const t=B[state.target], g=planGap(s,f,t);
   if(!g){main.appendChild(h('div',{class:'info-banner',text:!s.plan?'Нет плана на '+RU_M[CUR.m]+' для этой школы - разложить отклонение не от чего.':'Для выбранной базы нет конверсий или чека - выберите другую базу.'}));return;}
@@ -252,30 +257,18 @@ function renderLoss(main,s,f,B){
     h('div',{class:'tblwrap',style:'max-height:none'},h('table',{},h('thead',{},h('tr',{},h('th',{class:'l first',text:'Шаг'}),h('th',{class:'l',text:'Факт vs цель'}),h('th',{text:'Влияние на выручку'}),h('th',{text:'Доля потерь'}),h('th',{class:'l',text:'Как считается'}))),tb))));
 }
 
-/* ---------- 4. Методика и формат источника ---------- */
-function formatCard(){
-  const sh=META.sheets, tbl=(head,rows)=>h('div',{class:'tblwrap',style:'max-height:none;margin:6px 0 12px'},h('table',{},h('thead',{},h('tr',{},...head.map(x=>h('th',{class:'l',text:x})))),h('tbody',{},...rows.map(r=>h('tr',{},...r.map(x=>h('td',{class:'l',text:x})))))));
-  return h('div',{class:'card method'},h('h2',{text:'Формат таблицы-источника'}),
-    h('p',{text:'Одна Google-таблица с тремя листами (план и эталон можно держать в других таблицах - ссылки задаются в «Настройках»). Столбцы ищутся по заголовкам, порядок и регистр не важны; лишние столбцы не мешают.'}),
-    h('h3',{text:'Лист «'+sh.funnel+'» - строка = школа за один день'}),
-    tbl(['Дата','Город','Направление','Лиды','Постановки','Встречи','Первые продажи','Новые продажи','Старые продажи'],[['19.11.2026','Казань','Гитара','6','4','3','1','26 000','48 000']]),
-    h('p',{text:'Нужны данные текущего и прошлого месяца. Повторяющиеся строки одной школы за один день складываются. «Город» - как в отчёте по выручке, для второй школы в городе - с номером («Москва 2»).'}),
-    h('h3',{text:'Лист «'+sh.plan+'» - план школы на месяц'}),
-    tbl(['Месяц','Город','Направление','План лидов','План выручки'],[['11.2026 или ноябрь 2026','Казань','Гитара','180','2 400 000']]),
-    h('h3',{text:'Лист «'+sh.ref+'» - эталонные конверсии и чек'}),
-    tbl(['Направление','Лид → постановка','Постановка → встреча','Встреча → продажа','Средний чек'],[['Гитара','62%','75%','40%','28 000'],['Все (для направлений без своей строки)','60%','72%','38%','27 000']]),
-  );
-}
+/* ---------- 4. Методика и источники ---------- */
 function renderMethod(main){
   const ul=items=>h('ul',{},...items.map(x=>h('li',{text:x})));
   main.appendChild(h('div',{class:'card method'},h('h2',{text:'Как считается'}),
-    ul(['Все показатели - накопительно с 1-го числа по срез (вчера или последний день с данными в воронке). Прошлый месяц и направление - за те же дни, чтобы сравнение было честным.',
-      'Конверсии: постановки / лиды, встречи / постановки, первые продажи / встречи. Средний чек = новые продажи ₽ / первые продажи. Выручка = новые + старые продажи.',
+    ul(['Факт воронки - из файлов отчёта «Накопленная выручка месяца» по каждой школе и дню: лиды = «Кол-во новых лидов», постановки, встречи, первые продажи, новые и старые продажи (рубли). Новые + старые продажи = выручка школы.',
+      'План лидов и выручки и территориальный менеджер - из таблицы «Статус продажи» месяца (лист «'+((META.planSheet)||'РГ + ТМ')+'»).',
+      'Все показатели - накопительно с 1-го числа по срез (вчера или последний день с данными). Прошлый месяц и направление - за те же дни, чтобы сравнение было честным.',
+      'Конверсии: постановки / лиды, встречи / постановки, первые продажи / встречи. Средний чек = новые продажи ₽ / первые продажи.',
       'План на сегодня = план месяца × прошедшие дни / дней в месяце (равномерно). Прогноз месяца - по темпу с 1-го числа.',
-      'Потери считаются цепными подстановками от плана к факту в порядке: чек → встреча→продажа → постановка→встреча → лид→постановка → лиды. Потери от лидов - по текущим конверсиям и текущему чеку, потери на конверсиях - на плановом числе лидов. Сумма факторов равна отклонению выручки от плана.',
+      'Потери считаются цепными подстановками от плана к факту в порядке: чек → встреча→продажа → постановка→встреча → лид→постановка → лиды. Целевые конверсии и чек - прошлого месяца или среднего по направлению. Потери от лидов - по текущим конверсиям и чеку, потери на конверсиях - на плановом числе лидов. Сумма факторов равна отклонению выручки от плана.',
       'План новых продаж = лиды по плану × целевые конверсии × целевой чек; план продаж текущим ученикам = план выручки − план новых продаж.',
-      'Лаг воронки: лид конца периода ещё не дошёл до пробного, поэтому в середине месяца конверсии ниже итоговых. Сравнение с прошлым месяцем и направлением за те же дни это выравнивает, с эталоном - нет.'])));
-  main.appendChild(formatCard());
+      'Лаг воронки: лид конца периода ещё не дошёл до пробного, поэтому в середине месяца конверсии ниже итоговых. Сравнение с прошлым месяцем и направлением за те же дни это выравнивает.'])));
 }
 
 /* ---------- каркас ---------- */
@@ -286,12 +279,12 @@ function render(){
   if(!META.configured){
     const fl=document.querySelector('header .filters');if(fl)fl.style.display='none';
     main.appendChild(h('h1',{style:'margin:14px 0 4px;font-size:22px',text:'Экономика школы'}));
-    main.appendChild(h('div',{class:'info-banner',text:'Источник данных воронки ещё не подключён. Подготовьте Google-таблицу в формате ниже, откройте её на чтение сервисному аккаунту и укажите ссылку в «Настройках» → «Источники и параметры: Экономика школы». Затем нажмите «Обновить».'+(META.planSchools?' Планы и ТМ за '+RU_M[CUR.m]+' уже загружены из таблицы «Статус продажи»: '+META.planSchools+' школ.':'')}));
-    main.appendChild(formatCard());return;
+    main.appendChild(h('div',{class:'info-banner',text:'Нет данных воронки. Факт берётся из файлов отчёта «Накопленная выручка месяца»: обновите сначала его, затем этот отчёт.'+(META.planSchools?' Планы и ТМ за '+RU_M[CUR.m]+' уже загружены из таблицы «Статус продажи»: '+META.planSchools+' школ.':'')}));
+    return;
   }
   setAsof();
   const s=SCHOOLS.find(x=>x.id===state.school);
-  if(!s){main.appendChild(h('div',{class:'info-banner',text:'В воронке нет школ с данными за '+RU_M[CUR.m]+' и '+RU_M[PREV.m]+'.'}));main.appendChild(formatCard());return;}
+  if(!s){main.appendChild(h('div',{class:'info-banner',text:'В воронке нет школ с данными за '+RU_M[CUR.m]+' и '+RU_M[PREV.m]+'.'}));return;}
   const f=agg(s.cur,D), B=bases(s);
   document.querySelectorAll('#f-cmp button').forEach(b=>{b.classList.toggle('on',b.dataset.v===state.cmp);b.disabled=!B[b.dataset.v];b.title=B[b.dataset.v]?'':'нет данных для этой школы';});
   main.appendChild(h('h1',{style:'margin:14px 0 2px;font-size:22px',text:s.name+' · '+s.dir}));

@@ -4,6 +4,9 @@ defined('APP_ROOT') || exit;
 
 const REVENUE_COLS = 'A1:AD';  // A Страна ... H Выручка (рубли) ... K Школа, L Партнер, M Закрыта ... «Сумма возвратов» (обычно Z)
 const REVENUE_PACK_VER = 2;    // 2 - в кэше месяца есть возвраты по школам
+// столбцы воронки (по заголовкам): лиды, постановки, встречи, первые продажи, новые и старые продажи ₽
+const REVENUE_FUNNEL_COLS = ['L' => 'кол-во новых лидов', 'B' => 'кол-во постановок', 'M' => 'кол-во встреч', 'S' => 'кол-во первых продаж',
+                             'NR' => 'новые продажи (рубли)', 'OR' => 'старые продажи (рубли)'];
 
 /** Разбор строк листа raw_data_income. */
 function revenue_process_values(array $rows): array {
@@ -24,6 +27,11 @@ function revenue_process_values(array $rows): array {
     }
     $refIx = array_search('сумма возвратов', $hdr, true);   // нужен для проверки начисления роялти
     $refunds = [];
+    // воронка продаж по дням - для отчёта «Экономика школы»
+    $fIx = [];
+    foreach (REVENUE_FUNNEL_COLS as $k => $h) { $pos = array_search($h, $hdr, true); if ($pos !== false) $fIx[$k] = $pos; }
+    $hasFunnel = count($fIx) === count(REVENUE_FUNNEL_COLS);
+    $funnel = [];
     $months = []; $meta = []; $seen = []; $dups = []; $count = []; $bad = 0;
     $n = count($rows);
     for ($r = 1; $r < $n; $r++) {
@@ -38,6 +46,7 @@ function revenue_process_values(array $rows): array {
         if (isset($seen[$key])) $dups[$ym][$name] = true; else $seen[$key] = true;
         $months[$ym][$name][$day] = ($months[$ym][$name][$day] ?? 0) + $rev;
         if ($refIx !== false) $refunds[$ym][$name] = ($refunds[$ym][$name] ?? 0) + parse_num($row[$refIx] ?? 0);
+        if ($hasFunnel) foreach ($fIx as $k => $pos) { $v = parse_num($row[$pos] ?? 0); if ($v) $funnel[$ym][$name][$k][$day] = ($funnel[$ym][$name][$k][$day] ?? 0) + $v; }
         $count[$ym] = ($count[$ym] ?? 0) + 1;
         $country = norm_space((string)($row[$ix['страна']] ?? ''));
         $meta[$ym][$name] = [
@@ -53,7 +62,7 @@ function revenue_process_values(array $rows): array {
     if ($bad) $warn[] = "Пропущено строк без распознанной даты: {$bad}.";
     if ($refIx === false) $warn[] = 'Не найден столбец «Сумма возвратов» - проверка начисления роялти по этому месяцу будет без учёта возвратов.';
     return ['months' => $months, 'meta' => $meta, 'count' => $count, 'dominant' => array_key_first($count), 'dups' => $dups, 'warnings' => $warn,
-            'refunds' => $refunds, 'hasRef' => $refIx !== false];
+            'refunds' => $refunds, 'hasRef' => $refIx !== false, 'funnel' => $funnel, 'hasFunnel' => $hasFunnel];
 }
 
 /** Компактная упаковка одного месяца для кэша. */
@@ -64,6 +73,11 @@ function revenue_pack_month(array $p, string $ym): array {
         $v = [];
         for ($d = 1; $d <= $nd; $d++) $v[] = round($days[$d] ?? 0, 2);
         $schools[$name] = $p['meta'][$ym][$name] + ['v' => $v, 'r' => round($p['refunds'][$ym][$name] ?? 0, 2)];
+        if (!empty($p['hasFunnel'])) {
+            $f = [];
+            foreach (array_keys(REVENUE_FUNNEL_COLS) as $k) { $a = []; for ($d = 1; $d <= $nd; $d++) $a[] = round($p['funnel'][$ym][$name][$k][$d] ?? 0, 2); $f[$k] = $a; }
+            $schools[$name]['f'] = $f;
+        }
     }
     return ['month' => $ym, 'maxDay' => $maxDay, 'rows' => $p['count'][$ym], 'schools' => $schools, 'ver' => REVENUE_PACK_VER, 'hasRef' => !empty($p['hasRef']),
             'dups' => array_keys($p['dups'][$ym] ?? []), 'warnings' => $p['warnings']];
@@ -138,6 +152,7 @@ function revenue_build(array $s, SheetSource $src, string $dir, array &$warn): a
 
     // 4. Сборка
     $payload = revenue_payload($packs, $cur, $asOf, $now, $liveMonth, $s, $warn);
+    revenue_write_funnel($dir, $packs, $cur, $payload['meta']['asOf'], $warn);
     // месяцы, собранные из последней выгрузки основного файла (архив ещё не подключён) - данные могут быть неполными
     $payload['meta']['stale'] = (object)[];
     foreach ($sources as $ym => $x) if (($x['from'] ?? '') === 'live') $payload['meta']['stale']->$ym = $x['at'];
@@ -150,6 +165,30 @@ function revenue_build(array $s, SheetSource $src, string $dir, array &$warn): a
             'Школ' => (string)count($payload['schools']),
         ],
     ];
+}
+
+/**
+ * Воронка по дням за текущий и прошлый месяц для отчёта «Экономика школы» (файл funnel.json рядом с данными отчёта).
+ * Прошлый месяц при каждом обновлении берётся из архива заново, поэтому воронка за него есть, даже если кэш старше.
+ */
+function revenue_write_funnel(string $dir, array $packs, string $cur, string $asOf, array &$warn): void {
+    $prev = month_add($cur, -1);
+    $out = ['cur' => $cur, 'prev' => $prev, 'asOf' => $asOf, 'generatedAt' => date('c'), 'has' => ['cur' => false, 'prev' => false], 'schools' => []];
+    foreach (['cur' => $cur, 'prev' => $prev] as $per => $ym) {
+        foreach (($packs[$ym]['schools'] ?? []) as $name => $x) {
+            if (empty($x['f'])) continue;
+            if (!isset($out['schools'][$name])) $out['schools'][$name] = ['c' => $x['c'], 'd' => $x['d'], 'co' => $x['co'], 'p' => $x['p'], 'cl' => $x['cl']];
+            $out['schools'][$name][$per] = $x['f'];
+            $out['has'][$per] = true;
+        }
+    }
+    if (!$out['has']['cur']) {
+        @unlink($dir . '/funnel.json');
+        $warn[] = 'В файле текущего месяца нет столбцов воронки (' . implode(', ', REVENUE_FUNNEL_COLS) . ') - отчёт «Экономика школы» без данных.';
+        return;
+    }
+    if (!$out['has']['prev']) $warn[] = 'Воронка за ' . month_label($prev) . ' недоступна (нет архива с этими столбцами) - сравнение с прошлым месяцем в «Экономике школы» будет пустым.';
+    write_json_atomic($dir . '/funnel.json', $out);
 }
 
 function revenue_payload(array $packs, string $cur, string $asOf, DateTimeImmutable $now, string $liveMonth, array $s, array &$warn): array {
