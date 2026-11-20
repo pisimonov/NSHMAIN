@@ -170,7 +170,49 @@ function school_build(array $s, SheetSource $src, string $dir, array &$warn): ar
     ]];
 }
 
-function school_admin(array $s): void { ?>
+/** Первые строки листа месячной таблицы «Статус продажи» - чтобы увидеть его структуру прямо в настройках. */
+function school_month_preview(array $s, string $ym): void {
+    $url = ((array)$s['school_month_urls'])[$ym] ?? '';
+    $id = spreadsheet_id((string)$url);
+    echo '<div class="flash" style="margin:10px 0"><b>Лист «' . e($s['school_month_sheet']) . '» таблицы за ' . e(month_label($ym)) . ': строки 1-12</b>';
+    if (!$id) { echo '<div>Ссылки на этот месяц нет.</div></div>'; return; }
+    try {
+        $rows = make_source()->values($id, (string)$s['school_month_sheet'], 'A1:AZ12');
+        $w = 0; foreach ($rows as $r) $w = max($w, count($r));
+        echo '<div class="tblwrap" style="margin-top:8px;max-height:none"><table><thead><tr><th>#</th>';
+        for ($c = 0; $c < $w; $c++) { $l = ''; $n = $c; do { $l = chr(65 + $n % 26) . $l; $n = intdiv($n, 26) - 1; } while ($n >= 0); echo '<th class="l">' . $l . '</th>'; }
+        echo '</tr></thead><tbody>';
+        foreach ($rows as $i => $r) {
+            echo '<tr><td>' . ($i + 1) . '</td>';
+            for ($c = 0; $c < $w; $c++) echo '<td class="l">' . e(mb_substr((string)($r[$c] ?? ''), 0, 40)) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table></div><div class="hint" style="margin-top:6px">Сделайте скриншот или скопируйте эту таблицу в чат - по ней настраивается разбор плана.</div></div>';
+    } catch (Throwable $e) {
+        echo '<div class="err-t">' . e($e->getMessage()) . '</div><div>Проверьте, что таблица открыта на чтение для сервисного аккаунта (страница «Настройки» → «Доступ к Google»).</div></div>';
+    }
+}
+
+function school_admin(array $s): void {
+    $mu = ''; foreach ((array)$s['school_month_urls'] as $ym => $url) $mu .= $ym . ' ' . $url . "\n"; ?>
+    <h3 style="margin:4px 0 6px">Таблицы «Статус продажи» по месяцам (планы школ и ТМ)</h3>
+    <p style="font-size:13px;margin:0 0 8px">Каждый месяц создаётся отдельная таблица. Добавляйте строку на каждый новый месяц: месяц и ссылка. Планы лидов и выручки по школам и ФИО территориальных менеджеров берутся с листа ниже.</p>
+    <div class="field"><label>Месяц и ссылка (по одной в строке)</label>
+      <textarea name="school_month_urls" rows="4" placeholder="2026-12 https://docs.google.com/spreadsheets/d/.../edit"><?= e($mu) ?></textarea>
+      <span class="hint">Месяц - как 2026-12 или «Декабрь 2026». Каждую таблицу нужно открыть на чтение для сервисного аккаунта.</span></div>
+    <div class="row3">
+      <div class="field"><label>Лист с планами</label><input type="text" name="school_month_sheet" value="<?= e($s['school_month_sheet']) ?>"></div>
+      <div class="field"><label>Данные начинаются со строки</label><input type="number" name="school_month_first_row" min="2" max="50" value="<?= e($s['school_month_first_row']) ?>"></div>
+    </div>
+    <?php if ($s['school_month_urls']): ?>
+      <div style="font-size:13px;margin:0 0 10px">Показать первые строки листа:
+        <?php foreach (array_reverse(array_keys((array)$s['school_month_urls'])) as $ym): ?>
+          <a class="btn" style="margin-left:6px" href="admin.php?school_preview=<?= e($ym) ?>#r-school"><?= e(month_label($ym)) ?></a>
+        <?php endforeach; ?>
+      </div>
+      <?php $pv = (string)($_GET['school_preview'] ?? ''); if (preg_match('/^\d{4}-\d{2}$/', $pv)) school_month_preview($s, $pv); ?>
+    <?php endif; ?>
+    <h3 style="margin:14px 0 6px">Воронка и эталон</h3>
     <p style="font-size:13px;margin:0 0 10px">Таблица с листами «Воронка» (школа × день), «План» (месяц × школа) и «Эталон» (по направлениям). Формат листов - на странице отчёта, пока ссылка не указана, и в разделе «Методика».</p>
     <div class="field"><label>Ссылка на таблицу воронки</label>
       <input type="url" name="school_url" value="<?= e($s['school_url']) ?>" placeholder="https://docs.google.com/spreadsheets/d/...">
@@ -192,6 +234,11 @@ function school_admin_save(array $p, array $s): array {
         if ($u !== '' && !spreadsheet_id($u)) { $msgs[] = ['err', 'Ссылка на таблицу ' . $what . ' не похожа на Google-таблицу.']; continue; }
         $s[$k] = $u;
     }
+    $errs = [];
+    $s['school_month_urls'] = parse_month_links((string)($p['school_month_urls'] ?? ''), $errs);
+    foreach ($errs as $er) $msgs[] = ['err', 'Таблицы по месяцам: ' . $er];
+    $s['school_month_sheet'] = trim((string)($p['school_month_sheet'] ?? '')) ?: 'РГ + ТМ';
+    $s['school_month_first_row'] = max(2, min(50, (int)($p['school_month_first_row'] ?? 7)));
     $s['school_funnel_sheet'] = trim((string)($p['school_funnel_sheet'] ?? '')) ?: 'Воронка';
     $s['school_plan_sheet'] = trim((string)($p['school_plan_sheet'] ?? '')) ?: 'План';
     $s['school_ref_sheet'] = trim((string)($p['school_ref_sheet'] ?? '')) ?: 'Эталон';
@@ -207,6 +254,13 @@ return [
     'data_var' => 'SCHOOL_DATA',
     'css' => 'view.css',
     'defaults' => [
+        // таблицы «Статус продажи <месяц>»: планы лидов и выручки по школам, ФИО ТМ (лист «РГ + ТМ», данные с 7-й строки)
+        'school_month_urls' => [
+            '2026-10' => 'https://docs.google.com/spreadsheets/d/1_n-7OmghnRWOCaIYyFLGSUyscuH_8zPOEMdkrytFwtw/edit',
+            '2026-11' => 'https://docs.google.com/spreadsheets/d/1Ya6bWo65cgYGWj4FJ7ae7myPBOUTNjZc--JJCk_DuhE/edit',
+        ],
+        'school_month_sheet' => 'РГ + ТМ',
+        'school_month_first_row' => 7,
         'school_url' => '',
         'school_funnel_sheet' => 'Воронка',
         'school_plan_sheet' => 'План',
